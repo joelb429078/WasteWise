@@ -7,9 +7,13 @@ def create_app():
     CORS(app)
     app.config.from_object(Config)
 
-    from app.routes import auth, admin, employee
-    app.register_blueprint(auth.bp)
-    app.register_blueprint(admin.bp)
-    app.register_blueprint(employee.bp)
+    # Import and register blueprints
+    from app.routes.auth import bp as auth_bp
+    from app.routes.admin import bp as admin_bp
+    from app.routes.employee import bp as employee_bp
+
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(employee_bp, url_prefix='/api/employee')
 
     return app

@@ -8,7 +8,7 @@ class User:
         self.email = email
         self.business_id = business_id
         self.is_admin = is_admin
-        self.is_owner = is_owner
+        self.is_owner = is_owner   
         self.created_at = datetime.utcnow()
 
     def to_dict(self):
