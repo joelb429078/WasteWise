@@ -1,0 +1,74 @@
+import React, { useState } from "react";
+
+const Leaderboard = ({ data, maxHeight = "max-h-80", width = "max-w-2xl" }) => {
+  const [timeframe, setTimeframe] = useState("week"); // Default to weekly leaderboard
+
+  // Sample data for different timeframes (replace with actual data fetching later)
+  const filteredData = {
+    week: data.week,
+    userSeason: data.userSeason,
+    userWeek: data.userWeek,
+    season: data.season,
+  };
+
+  // Determine the specific user data based on the selected timeframe
+  const specificUserData = timeframe === "week" ? data.userWeek : data.userSeason;
+
+  return (
+    <div className={`w-full ${width} mx-auto p-4 bg-brand-100 rounded-lg shadow-md text-black`}>
+      {/* Dropdown to select time frame */}
+      <div className="mb-4 flex justify-left">
+        <select
+          className="p-2 border rounded bg-white cursor-pointer"
+          value={timeframe}
+          onChange={(e) => setTimeframe(e.target.value)}
+        >
+          <option value="week">Week</option>
+          <option value="season">Season</option>
+        </select>
+      </div>
+
+      {/* Scrollable table wrapper */}
+      <div className={`${maxHeight} overflow-y-auto`}>
+        <table className="w-full border-collapse">
+          <thead className="sticky top-0 bg-white shadow">
+            <tr className="border-b text-left">
+              <th className="p-2">Rank</th>
+              <th className="p-2">User</th>
+              <th className="p-2">Weight (kg)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredData[timeframe].map(({ rank, name, weight }) => (
+              <tr
+                key={rank}
+                className={`border-b ${
+                  rank === 1
+                    ? "bg-brand-600"
+                    : rank === 2
+                    ? "bg-brand-400"
+                    : rank === 3
+                    ? "bg-brand-200"
+                    : "bg-white"
+                }`}
+              >
+                <td className="p-2 font-semibold">{rank}</td>
+                <td className="p-2">{name}</td>
+                <td className="p-2">{weight} kg</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="sticky bottom-0 bg-accent-200">
+            <tr className="border-t">
+              <td className="p-2 font-semibold">{specificUserData.rank}</td>
+              <td className="p-2">{specificUserData.name}</td>
+              <td className="p-2">{specificUserData.weight} kg</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default Leaderboard;

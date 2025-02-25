@@ -16,7 +16,7 @@ export const LeaderboardPreview = () => {
               </p>
               <div className="mt-8 sm:flex">
                 <div className="rounded-md shadow">
-                  <Link href="/public-info" className="flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700">
+                  <Link href="/leaderboard" className="flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700">
                     View Leaderboard
                   </Link>
                 </div>
