@@ -1,9 +1,10 @@
+"use client";
+
 import React, { useState } from "react";
 
 const Leaderboard = ({ data, maxHeight = "max-h-80", width = "max-w-2xl" }) => {
-  const [timeframe, setTimeframe] = useState("week"); // Default to weekly leaderboard
+  const [timeframe, setTimeframe] = useState("week");
 
-  // Sample data for different timeframes (replace with actual data fetching later)
   const filteredData = {
     week: data.week,
     userSeason: data.userSeason,
@@ -11,12 +12,11 @@ const Leaderboard = ({ data, maxHeight = "max-h-80", width = "max-w-2xl" }) => {
     season: data.season,
   };
 
-  // Determine the specific user data based on the selected timeframe
   const specificUserData = timeframe === "week" ? data.userWeek : data.userSeason;
 
   return (
     <div className={`w-full ${width} mx-auto p-4 bg-brand-100 rounded-lg shadow-md text-black`}>
-      {/* Dropdown to select time frame */}
+      {/* Dropdown */}
       <div className="mb-4 flex justify-left">
         <select
           className="p-2 border rounded bg-white cursor-pointer"
@@ -28,7 +28,7 @@ const Leaderboard = ({ data, maxHeight = "max-h-80", width = "max-w-2xl" }) => {
         </select>
       </div>
 
-      {/* Scrollable table wrapper */}
+      {/* Scrollable Table */}
       <div className={`${maxHeight} overflow-y-auto`}>
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-white shadow">

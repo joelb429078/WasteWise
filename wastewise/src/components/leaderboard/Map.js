@@ -1,8 +1,10 @@
+"use client";
+
 import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-const MapComponent = ({ postcode, maxHeight = "max-h-80", width = "max-w-xl" }) => {
+const Map = ({ postcode, maxHeight = "max-h-80", width = "max-w-xl" }) => {
   const [location, setLocation] = useState(null);
 
   useEffect(() => {
@@ -13,7 +15,7 @@ const MapComponent = ({ postcode, maxHeight = "max-h-80", width = "max-w-xl" }) 
         );
         const data = await response.json();
         if (data.length > 0) {
-          setLocation({ lat: data[0].lat, lon: data[0].lon });
+          setLocation({ lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) });
         }
       } catch (error) {
         console.error("Error fetching location:", error);
@@ -28,7 +30,7 @@ const MapComponent = ({ postcode, maxHeight = "max-h-80", width = "max-w-xl" }) 
     <MapContainer
       center={[location.lat, location.lon]}
       zoom={14}
-      className="${width} ${maxHeight} rounded-lg shadow-md"
+      className={`max-w-xl max-h-80 rounded-lg shadow-md`}
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -41,4 +43,4 @@ const MapComponent = ({ postcode, maxHeight = "max-h-80", width = "max-w-xl" }) 
   );
 };
 
-export default MapComponent;
+export default Map;
