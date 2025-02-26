@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 
-const Leaderboard = ({ data, maxHeight = "max-h-80", width = "max-w-2xl" }) => {
+const Leaderboard = ({ data, maxHeight = "max-h-auto", width = "max-w-auto" }) => {
   const [timeframe, setTimeframe] = useState("week");
 
   const filteredData = {
