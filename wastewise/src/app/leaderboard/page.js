@@ -1,10 +1,8 @@
 "use client";
 
 import Leaderboard from "@/components/leaderboard/Leaderboard";
-
 import dynamic from "next/dynamic";
 
-const Map = dynamic(() => import("@components/leaderboard/Map"), { ssr: false });
 
 const testNum = 30;
 
@@ -23,10 +21,16 @@ const sampleData = {
   userSeason: { rank: 342, name: "You", weight: 1200 },
 };
 
+
+const Map = dynamic(() => import("@/components/leaderboard/Map"), { ssr: false });
+
 export default function LeaderboardPagex() {
   return (
     <div className="flex flex-col items-center min-h-screen gap-6 bg-white p-6">
-      <Map postcode="BA2 7AY" maxHeight="max-h-[400px]" width="max-w-xl" />
+        <Leaderboard data={sampleData} />
+      <div className="w-full max-w-xl h-[400px]"> {/* ✅ Ensures parent has a height */}
+        <Map postcode="BA2 7AY" />
+      </div>
     </div>
   );
 }
