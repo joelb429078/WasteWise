@@ -1,12 +1,8 @@
 # backend/app/utils/db.py
 import psycopg2
 from postgrest import PostgrestClient
-# from config import Config
-from contextlib import contextmanager
-
-import sys
-sys.path.insert(1, r'C:\Users\fearnot\Git Clones\Software Eng\WasteWise\wastewise\backend\app')
 from config import Config
+from contextlib import contextmanager
 
 @contextmanager
 def get_db_connection():
@@ -23,9 +19,10 @@ def get_db_connection():
 
 supabase_client = PostgrestClient(
     base_url=f"{Config.SUPABASE_URL}/rest/v1",
-    headers={"apikey": Config.SUPABASE_KEY}#,
-        # "Authorization": f"Bearer {Config.SUPABASE_KEY}"
-    #}
+    headers={
+        "apikey": Config.SUPABASE_KEY,
+        "Authorization": f"Bearer {Config.SUPABASE_KEY}"
+    }
 )
 
 def test_connection():
@@ -37,4 +34,3 @@ def test_connection():
     except Exception as e:
         print(f"Connection test failed: {e}")
         return False
-    

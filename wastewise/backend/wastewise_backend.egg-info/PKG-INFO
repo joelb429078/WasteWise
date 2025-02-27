@@ -1,0 +1,10 @@
+Metadata-Version: 2.2
+Name: wastewise-backend
+Version: 1.0.0
+Requires-Dist: flask
+Requires-Dist: flask-cors
+Requires-Dist: python-dotenv
+Requires-Dist: psycopg2-binary
+Requires-Dist: supabase-py
+Requires-Dist: postgrest
+Dynamic: requires-dist

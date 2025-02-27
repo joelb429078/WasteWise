@@ -21,8 +21,11 @@ export default function Home() {
               <Link href="/public-info" className="text-gray-700 hover:text-green-600 px-3 py-2">
                 Public Reports
               </Link>
+              <Link href="/signup" className="text-gray-700 hover:text-green-600 px-3 py-2">
+                Join Us
+              </Link>
               <Link href="/login" className="text-gray-700 hover:text-green-600 px-3 py-2">
-                Login
+              Log In
               </Link>
             </div>
           </div>

@@ -4,7 +4,6 @@ from flask import Blueprint, request, jsonify
 import hashlib
 import hmac
 import base64
-import sys
 
 bp = Blueprint('auth', __name__)
 

@@ -1,19 +1,10 @@
-import sys
 from flask import Flask
 from flask_cors import CORS
-import sys
-sys.path.insert(1, r'C:\Users\fearnot\Git Clones\Software Eng\WasteWise\wastewise\backend\app')
 from config import Config
-
-
 
 def create_app():
     app = Flask(__name__)
     CORS(app)
-
-    print(f"Inside create_app - SUPABASE_URL: {Config.SUPABASE_URL}")  # Debugging
-
-
     app.config.from_object(Config)
 
     # Import and register blueprints
@@ -28,5 +19,3 @@ def create_app():
     app.register_blueprint(employeeSignUp_bp, url_prefix='/api/employeeSignUp')
 
     return app
-
-create_app()
