@@ -21,26 +21,32 @@ const sampleData = {
   userSeason: { rank: 342, name: "You", weight: 1200 },
 };
 
+const postcodes = {
+    current: "BA2 7AY",
+    others: {
+        "BA1 1AA": "Bath",
+    }
+}
+
 const Map = dynamic(() => import("@/components/leaderboard/Map"), { ssr: false });
 
 export default function LeaderboardPagex() {
-  return (
-    <div className="min-h-screen bg-white p-6 flex justify-center">
-      <div className="grid grid-cols-2 gap-6 w-full max-w-6xl h-[600px]"> {/* Defined region */}
-        {/* Leaderboard takes full height on the left */}
-        <div className="h-full">
-          <Leaderboard data={sampleData} />
+    return (
+        <div className="grid grid-cols-2 gap-4 w-full h-[600px] p-4">
+            {/* Leaderboard: Takes half the width and full height */}
+            <div className="col-span-1 h-300px">
+            <Leaderboard data={sampleData} />
+            </div>
+
+            {/* Right Side: Business Overview and Map */}
+            <div className="col-span-1 grid grid-rows-2 gap-4 h-full">
+            <div className="row-span-1">
+                <BusinessOverview rank="112" previousRank="218" totalRecycled="12000kg" />
+            </div>
+            <div className="row-span-1">
+                <Map postcode="BA2 7AY" />
+            </div>
+            </div>
         </div>
-        {/* Right column: Business Overview (top) and Map (bottom) */}
-        <div className="flex flex-col gap-6 h-full">
-          <div className="h-1/2">
-            <BusinessOverview rank={342} previousRank={512} totalRecycled={1200} />
-          </div>
-          <div className="h-1/2">
-            <Map postcode="BA2 7AY" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+        );
+};

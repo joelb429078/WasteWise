@@ -44,6 +44,7 @@ const Map = ({ postcode }) => {
 
   return (
     <MapContainer
+      key={postcode}
       center={[location.lat, location.lon]}
       zoom={14}
       style={{ height: "400px", width: "100%" }} // ✅ Ensures visibility
