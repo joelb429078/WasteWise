@@ -68,7 +68,10 @@ export default function Signup() {
           }
         ]);
 
-      if (userError) throw userError;
+      // if (userError) throw userError;
+      if (userError) {
+        throw userError;
+      }
 
       router.push('/dashboard');
     } catch (error) {
@@ -87,8 +90,10 @@ export default function Signup() {
 
   return (
     <AuthCard 
-      title="Create Account" 
-      subtitle="Start managing your waste efficiently"
+      title="Join the WasteWise Community"
+      subtitle="Sign your company up for WasteWise"
+    
+
     >
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         {error && (
