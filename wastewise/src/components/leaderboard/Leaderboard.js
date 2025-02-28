@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 
-const Leaderboard = ({ data, maxHeight = "max-h-auto", width = "max-w-auto" }) => {
+const Leaderboard = ({ data }) => {
   const [timeframe, setTimeframe] = useState("week");
 
   const filteredData = {
@@ -15,7 +15,7 @@ const Leaderboard = ({ data, maxHeight = "max-h-auto", width = "max-w-auto" }) =
   const specificUserData = timeframe === "week" ? data.userWeek : data.userSeason;
 
   return (
-    <div className={`w-auto ${maxHeight} mx-auto p-4 bg-brand-100 rounded-lg shadow-md text-black`}>
+    <div className="w-full h-full overflow-y-auto mx-auto p-4 bg-brand-100 rounded-lg shadow-md text-black">
       {/* Dropdown */}
       <div className="mb-4 flex justify-left">
         <select
@@ -29,7 +29,7 @@ const Leaderboard = ({ data, maxHeight = "max-h-auto", width = "max-w-auto" }) =
       </div>
 
       {/* Scrollable Table */}
-      <div className={` ${width}`}>
+      <div>
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-white shadow">
             <tr className="border-b text-left">

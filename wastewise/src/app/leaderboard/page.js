@@ -1,52 +1,38 @@
-"use client";
+import LeaderboardDashboard from "@/components/leaderboard/LeaderboardDashboard";
 
-import Leaderboard from "@/components/leaderboard/Leaderboard";
-import BusinessOverview from "@/components/leaderboard/BusinessOverview";
-import dynamic from "next/dynamic";
+export default function SomePage() {
+  const testNum = 30;
+  const sampleData = {
+    week: Array.from({ length: testNum }, (_, i) => ({
+      rank: i + 1,
+      name: `User ${i + 1}`,
+      weight: (testNum - i) * 10,
+    })),
+    season: Array.from({ length: testNum }, (_, i) => ({
+      rank: i + 1,
+      name: `User ${i + 1}`,
+      weight: (testNum - i) * 40,
+    })),
+    userWeek: { rank: 512, name: "You", weight: 100 },
+    userSeason: { rank: 342, name: "You", weight: 1200 },
+  };
+  
+  const postcodes = {
+      current: "BA2 7AY",
+      others: {
+          "BA1 1AA": "Bath",
+      }
+  }
 
-const testNum = 30;
-
-const sampleData = {
-  week: Array.from({ length: testNum }, (_, i) => ({
-    rank: i + 1,
-    name: `User ${i + 1}`,
-    weight: (testNum - i) * 10,
-  })),
-  season: Array.from({ length: testNum }, (_, i) => ({
-    rank: i + 1,
-    name: `User ${i + 1}`,
-    weight: (testNum - i) * 40,
-  })),
-  userWeek: { rank: 512, name: "You", weight: 100 },
-  userSeason: { rank: 342, name: "You", weight: 1200 },
-};
-
-const postcodes = {
-    current: "BA2 7AY",
-    others: {
-        "BA1 1AA": "Bath",
-    }
+  return (
+    <div className="w-1/2 h-screen">
+      <LeaderboardDashboard
+        data={sampleData}
+        rank="112"
+        previousRank="218"
+        totalRecycled="12000kg"
+        postcode="BA2 7AY"
+      />
+    </div>
+  );
 }
-
-const Map = dynamic(() => import("@/components/leaderboard/Map"), { ssr: false });
-
-export default function LeaderboardPage() {
-    return (
-      <div className="grid grid-cols-2 gap-4 w-full h-full p-4">
-        {/* Leaderboard: Takes half the width and full height */}
-        <div className="col-span-1 h-full overflow-y-auto">
-          <Leaderboard data={sampleData} />
-        </div>
-
-        {/* Right Side: Business Overview and Map */}
-        <div className="col-span-1 grid grid-rows-2 gap-4 h-full">
-          <div className="row-span-1">
-            <BusinessOverview rank="112" previousRank="218" totalRecycled="12000kg" />
-          </div>
-          <div className="row-span-1">
-            <Map postcode="BA2 7AY" />
-          </div>
-        </div>
-      </div>
-    );
-};
