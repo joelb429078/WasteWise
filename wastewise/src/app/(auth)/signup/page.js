@@ -1,4 +1,3 @@
-// src/app/(auth)/signup/page.js
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -20,6 +19,17 @@ export default function Signup() {
   });
   const [error, setError] = useState(null);
 
+  // Generate a more secure random code
+  const generateSecureCode = () => {
+    // Create a code with letters and numbers that's 10 characters long
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < 10; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -32,50 +42,153 @@ export default function Signup() {
     }
 
     try {
+      console.log('Starting business signup process');
+      
+      // Normalize the email
+      const normalizedEmail = formData.email.toLowerCase().trim();
+
       // Create auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
+        email: normalizedEmail,
         password: formData.password,
+        options: {
+          data: {
+            username: formData.username,
+            company_name: formData.companyName,
+            is_admin: true,
+            is_owner: true
+          }
+        }
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        console.error('Auth error:', authError);
+        throw authError;
+      }
 
-      // Create business record
+      console.log('Auth user created successfully:', authData?.user?.id);
+
+      // Create business record with secure invite codes
+      const employeeCode = generateSecureCode();
+      const adminCode = generateSecureCode();
+      
+      console.log('Creating business with codes:', { employeeCode, adminCode });
+
       const { data: businessData, error: businessError } = await supabase
         .from('Businesses')
         .insert([
           {
-            companyName: formData.companyName,
-            employeeInviteCode: Math.random().toString(36).substring(2, 15),
-            adminInviteCode: Math.random().toString(36).substring(2, 15)
+            companyName: formData.companyName.trim(),
+            employeeInviteCode: employeeCode,
+            adminInviteCode: adminCode
           }
         ])
         .select()
         .single();
 
-      if (businessError) throw businessError;
-
-      // Create user record
-      const { error: userError } = await supabase
-        .from('Users')
-        .insert([
-          {
-            email: formData.email,
-            username: formData.username,
-            businessID: businessData.businessID,
-            admin: true,
-            owner: true
-          }
-        ]);
-
-      // if (userError) throw userError;
-      if (userError) {
-        throw userError;
+      if (businessError) {
+        console.error('Business creation error:', businessError);
+        throw businessError;
       }
 
+      console.log('Business created successfully:', businessData);
+      console.log('Business ID to be used:', businessData.businessID);
+
+      // Sign in immediately to get authenticated session
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: formData.password
+      });
+
+      if (signInError) {
+        console.error('Sign in error:', signInError);
+        throw signInError;
+      }
+
+      console.log('Signed in successfully');
+
+      // Create user record with explicit business ID and admin flags
+      const userData = {
+        email: normalizedEmail,
+        username: formData.username.trim(),
+        businessID: businessData.businessID, // Explicitly use the ID from business creation
+        admin: true,                         // Explicitly set to true
+        owner: true                          // Explicitly set to true
+      };
+      
+      console.log('Attempting to create user record with data:', userData);
+
+      // Try using a stored procedure if available (as in the employee signup)
+      let userRecordSuccess = false;
+      
+      try {
+        // Try the RPC method first
+        const { data: rpcResult, error: rpcError } = await supabase.rpc('create_owner_user', {
+          user_email: userData.email,
+          user_name: userData.username,
+          business_id: userData.businessID,
+          is_admin: true,
+          is_owner: true
+        });
+        
+        if (!rpcError) {
+          console.log('User created via RPC:', rpcResult);
+          userRecordSuccess = true;
+        } else {
+          console.warn('RPC method failed, falling back to direct insert:', rpcError);
+        }
+      } catch (rpcAttemptError) {
+        console.warn('RPC method not available, using direct insert');
+      }
+      
+      // Fall back to direct insert if RPC failed or isn't available
+      if (!userRecordSuccess) {
+        const { data: insertedUser, error: userError } = await supabase
+          .from('Users')
+          .insert([userData])
+          .select();
+
+        if (userError) {
+          console.error('User creation error:', userError);
+          // Try one more approach - upsert instead of insert
+          console.log('Attempting upsert as final approach');
+          
+          const { data: upsertedUser, error: upsertError } = await supabase
+            .from('Users')
+            .upsert([userData], { onConflict: 'email' })
+            .select();
+            
+          if (upsertError) {
+            console.error('Even upsert failed:', upsertError);
+            throw upsertError;
+          } else {
+            console.log('User created via upsert:', upsertedUser);
+            userRecordSuccess = true;
+          }
+        } else {
+          console.log('User created via direct insert:', insertedUser);
+          userRecordSuccess = true;
+        }
+      }
+
+      // Store business codes in local storage for easy access
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('employeeInviteCode', employeeCode);
+        localStorage.setItem('adminInviteCode', adminCode);
+      }
+
+      // Success - redirect to dashboard
       router.push('/dashboard');
+      
     } catch (error) {
-      setError(error.message);
+      console.error('Signup error:', error);
+      
+      // Provide user-friendly error messages
+      if (error.message.includes('already registered')) {
+        setError('An account with this email already exists. Please sign in instead.');
+      } else {
+        setError(error.message || 'An error occurred during signup. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -92,8 +205,6 @@ export default function Signup() {
     <AuthCard 
       title="Join the WasteWise Community"
       subtitle="Sign your company up for WasteWise"
-    
-
     >
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         {error && (
