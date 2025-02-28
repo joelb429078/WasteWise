@@ -40,7 +40,7 @@ const Map = ({ postcode }) => {
     }, 500);
   }, []);
 
-  if (!location) return <p>Loading map...</p>;
+  if (typeof window === "undefined" || !location) return <p>Loading map...</p>;
 
   return (
     <MapContainer

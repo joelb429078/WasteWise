@@ -30,23 +30,23 @@ const postcodes = {
 
 const Map = dynamic(() => import("@/components/leaderboard/Map"), { ssr: false });
 
-export default function LeaderboardPagex() {
+export default function LeaderboardPage() {
     return (
-        <div className="grid grid-cols-2 gap-4 w-full h-[600px] p-4">
-            {/* Leaderboard: Takes half the width and full height */}
-            <div className="col-span-1 h-300px">
-            <Leaderboard data={sampleData} />
-            </div>
-
-            {/* Right Side: Business Overview and Map */}
-            <div className="col-span-1 grid grid-rows-2 gap-4 h-full">
-            <div className="row-span-1">
-                <BusinessOverview rank="112" previousRank="218" totalRecycled="12000kg" />
-            </div>
-            <div className="row-span-1">
-                <Map postcode="BA2 7AY" />
-            </div>
-            </div>
+      <div className="grid grid-cols-2 gap-4 w-full h-full p-4">
+        {/* Leaderboard: Takes half the width and full height */}
+        <div className="col-span-1 h-full overflow-y-auto">
+          <Leaderboard data={sampleData} />
         </div>
-        );
+
+        {/* Right Side: Business Overview and Map */}
+        <div className="col-span-1 grid grid-rows-2 gap-4 h-full">
+          <div className="row-span-1">
+            <BusinessOverview rank="112" previousRank="218" totalRecycled="12000kg" />
+          </div>
+          <div className="row-span-1">
+            <Map postcode="BA2 7AY" />
+          </div>
+        </div>
+      </div>
+    );
 };
