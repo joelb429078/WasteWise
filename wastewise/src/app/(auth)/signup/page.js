@@ -173,12 +173,13 @@ export default function Signup() {
 
       // Store business codes in local storage for easy access
       if (typeof window !== 'undefined') {
-        localStorage.setItem('employeeInviteCode', employeeCode);
-        localStorage.setItem('adminInviteCode', adminCode);
+        localStorage.setItem('authToken', authData.session.access_token);
+        localStorage.setItem('userId', authData.user.id);
+        localStorage.setItem('isAdmin', true); // For business owner signup
       }
 
       // Success - redirect to dashboard
-      router.push('/dashboard');
+      router.push('/admin/dashboard');
       
     } catch (error) {
       console.error('Signup error:', error);

@@ -89,9 +89,21 @@ export default function Login() {
       // Redirect based on role
       if (userData.admin) {
         console.log('Redirecting to admin dashboard');
-        router.push('/admin/dashboard');
+        
+        // Add these lines to store auth data in localStorage
+        localStorage.setItem('authToken', data.session.access_token);
+        localStorage.setItem('userId', user.id);
+        localStorage.setItem('isAdmin', userData.admin);
+        
+        router.push('/dashboard');
       } else {
         console.log('Redirecting to user dashboard');
+        
+        // Add these lines to store auth data in localStorage
+        localStorage.setItem('authToken', data.session.access_token);
+        localStorage.setItem('userId', user.id);
+        localStorage.setItem('isAdmin', userData.admin || false);
+        
         router.push('/dashboard');
       }
 

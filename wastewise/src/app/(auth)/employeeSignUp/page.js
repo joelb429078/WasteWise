@@ -196,7 +196,11 @@ export default function EmployeeSignUp() {
                 }
                 
                 console.log('User record created or updated successfully');
-                
+        
+                localStorage.setItem('authToken', data.session.access_token);
+                localStorage.setItem('userId', data.user.id);
+                localStorage.setItem('isAdmin', isAdmin);
+
                 // 5. Redirect to dashboard
                 router.push('/dashboard');
                 
