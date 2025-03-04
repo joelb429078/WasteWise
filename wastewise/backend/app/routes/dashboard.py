@@ -139,10 +139,9 @@ def get_dashboard_metrics():
                     print(f"[METRICS] Retrieved email from auth: {email}")
             except Exception as e:
                 print(f"[METRICS] Error getting user email: {e}")
-
         print(f"[METRICS] Fetching metrics for auth user ID: {auth_user_id}, email: {email}")
         user_response = supabase_client.table('Users')\
-            .select('userID,businessID')\
+            .select('userID, businessID')\
             .eq('email', email)\
             .execute()
         print(f"[METRICS] User query response: {user_response.data}")
@@ -155,26 +154,23 @@ def get_dashboard_metrics():
         business_id = user_response.data[0]['businessID']
         print(f"[METRICS] Found userID: {user_id}, businessID: {business_id}")
 
-        # Query total waste directly using businessID
+        # Query total waste from Wastelogs using businessID
         waste_response = supabase_client.table('Wastelogs')\
             .select('weight')\
             .eq('businessID', business_id)\
             .execute()
-        print(f"[METRICS] Waste query raw data: {waste_response.data}")
-        total_waste = sum([float(item.get('weight', 0)) for item in waste_response.data]) if waste_response.data else 0
+        waste_logs = waste_response.data
+        total_waste = sum([float(item.get('weight', 0)) for item in waste_logs]) if waste_logs else 0
         print(f"[METRICS] Total waste computed: {total_waste}")
 
-        # Query recent logs directly using businessID
+        # (Process recent logs for other metrics as before)
         recent_logs_response = supabase_client.table('Wastelogs')\
             .select('*')\
             .eq('businessID', business_id)\
             .order('created_at', desc=True)\
             .limit(2)\
             .execute()
-        print(f"[METRICS] Recent logs: {recent_logs_response.data}")
         recent_logs = recent_logs_response.data
-
-        # Process recent logs
         most_recent_log = {}
         most_recent_change = 0
         if recent_logs and len(recent_logs) > 0:
@@ -192,32 +188,57 @@ def get_dashboard_metrics():
                     most_recent_change = ((current - previous) / previous) * 100
         else:
             most_recent_log = {"date": datetime.now().isoformat(), "weight": 0}
-        print(f"[METRICS] Processed metrics: totalWaste={total_waste}, mostRecentLog={most_recent_log}")
+        print(f"[METRICS] Processed waste metrics: totalWaste={total_waste}, mostRecentLog={most_recent_log}")
 
-        # Calculate current rank
-        # Fetch all businesses and their total waste to determine rank
-        # This could be optimized with a stored procedure if performance is an issue
-        leaderboard_response = supabase_client.table('Leaderboards')\
-            .select('businessID,seasonalWaste')\
-            .order('seasonalWaste', desc=True)\
+        # ---- New: Compute current rank for the current business ----
+        leaderboard_all_response = supabase_client.table('Leaderboards')\
+            .select('businessID, seasonalWaste, lastSeasonReset')\
+            .order('lastSeasonReset', desc=True)\
             .execute()
-            
-        current_rank = 0
-        for idx, entry in enumerate(leaderboard_response.data, 1):
-            if entry.get('businessID') == business_id:
-                current_rank = idx
-                break
+        leaderboard_all = leaderboard_all_response.data
 
-        # Return metrics response
+        groups = {}
+        for entry in leaderboard_all:
+            bid = entry.get('businessID')
+            if bid not in groups:
+                groups[bid] = []
+            groups[bid].append(entry)
+        leaderboard_list = []
+        for bid, entries in groups.items():
+            entries.sort(key=lambda x: x.get('lastSeasonReset'), reverse=True)
+            current_entry = entries[0]
+            previous_entry = entries[1] if len(entries) > 1 else None
+            current_waste = float(current_entry.get('seasonalWaste', 0))
+            previous_waste = float(previous_entry.get('seasonalWaste', current_waste)) if previous_entry else current_waste
+            leaderboard_list.append({
+                'businessID': bid,
+                'seasonalWaste': current_waste,
+                'previousSeasonalWaste': previous_waste,
+            })
+        sorted_current = sorted(leaderboard_list, key=lambda x: x['seasonalWaste'], reverse=True)
+        current_rank_map = {}
+        for i, entry in enumerate(sorted_current, start=1):
+            current_rank_map[entry['businessID']] = i
+        sorted_previous = sorted(leaderboard_list, key=lambda x: x['previousSeasonalWaste'], reverse=True)
+        previous_rank_map = {}
+        for i, entry in enumerate(sorted_previous, start=1):
+            previous_rank_map[entry['businessID']] = i
+
+        current_business_rank = current_rank_map.get(business_id, 0)
+        previous_business_rank = previous_rank_map.get(business_id, current_business_rank)
+        rank_change = previous_business_rank - current_business_rank
+        # -------------------------------------------------------------
+
         response_data = {
             "co2Emissions": round(total_waste * 2.5) if total_waste else 0,
-            "co2Change": 0,
+            "co2Change": 0,  # Optionally derive this from rank change or other metrics
             "totalWaste": round(total_waste) if total_waste else 0,
-            "wasteChange": 0,
+            "wasteChange": round(most_recent_change, 1) if most_recent_change else 0,
             "mostRecentLog": most_recent_log,
             "mostRecentChange": round(most_recent_change, 1) if most_recent_change else 0,
-            "currentRank": current_rank,
-            "rankChange": 0
+            "leaderboardChange": round(most_recent_change, 1),  # (or remove if not needed)
+            "currentRank": current_business_rank,
+            "rankChange": rank_change
         }
         print(f"[METRICS] Final response data: {response_data}")
         return jsonify({"status": "success", "data": response_data})
@@ -226,6 +247,7 @@ def get_dashboard_metrics():
         import traceback
         print(traceback.format_exc())
         return return_empty_metrics()
+
 
 @bp.route('/waste-chart', methods=['GET'])
 @auth_required

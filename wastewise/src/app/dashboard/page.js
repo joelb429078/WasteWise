@@ -1,12 +1,17 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { PieChart, Pie, Cell } from 'recharts';
-import { Clock, Calendar, Award, Trash2, Users, Plus, BarChart, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Layers, RefreshCw } from 'lucide-react';
+import { Clock, Calendar, Award, Trash2, Users, Plus, BarChart, TrendingUp, 
+  TrendingDown, ArrowUpRight, ArrowDownRight, Layers, RefreshCw, Clipboard,
+  ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 const Dashboard = () => {
+  const router = useRouter();
+
   // Format date for display - moved before useState usage
   const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -40,6 +45,7 @@ const Dashboard = () => {
   const [recentEntries, setRecentEntries] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [chartLoading, setChartLoading] = useState(false); // New state for chart-specific loading
   const [activeButton, setActiveButton] = useState(null);
   const [error, setError] = useState(null);
 
@@ -78,6 +84,12 @@ const Dashboard = () => {
     BRAND_COLORS[700], 
     ACCENT_COLORS[300]
   ];
+
+  const [isActionBarVisible, setIsActionBarVisible] = useState(true);
+
+  const toggleActionBar = () => {
+    setIsActionBarVisible(!isActionBarVisible);
+  };
 
   // Authentication check function
   const checkAuth = async () => {
@@ -140,6 +152,14 @@ const Dashboard = () => {
     setActiveButton(null);
   };
 
+  const handleWasteVisit = () => {
+    router.push("/wastelogs");
+  }
+
+  const handleLeaderBoardVisit = () => {
+    router.push("/leaderboard");
+  }
+
   // Get current timestamp for last updated
   const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
 
@@ -195,7 +215,9 @@ const Dashboard = () => {
               totalWaste: data.data.totalWaste || 0,
               wasteChange: data.data.wasteChange || 0,
               mostRecentLog: {
-                date: data.data.mostRecentLog?.date || formatDate(new Date()),
+                date: data.data.mostRecentLog?.date 
+                  ? formatDate(data.data.mostRecentLog.date) 
+                  : formatDate(new Date()),
                 weight: data.data.mostRecentLog?.weight || 0
               },
               mostRecentChange: data.data.mostRecentChange || 0,
@@ -212,8 +234,8 @@ const Dashboard = () => {
           // Don't set error state here, just log it
         }
       };
-      
-      // Fetch waste chart data from dedicated endpoint
+
+      // Fetch waste chart data with timeframe parameter
       const fetchWasteChartData = async () => {
         try {
           console.log('Fetching waste chart from:', `${API_BASE_URL}/api/dashboard/waste-chart?timeframe=${timeframe}`);
@@ -318,24 +340,23 @@ const Dashboard = () => {
           const data = await response.json();
           
           if (data.status === 'success' && data.data) {
-            // Format leaderboard data
+            // Data is already deduplicated on the backend, just format for display
             const leaderboard = data.data.map((entry, index) => ({
-              id: entry.ID || index + 1,
+              id: `leaderboard-${entry.businessID}-${index}`, // Guaranteed unique ID
               username: entry.username || `User ${index + 1}`,
               totalWaste: Math.round(entry.seasonalWaste || 0),
-              rank: index + 1,
+              rank: entry.rank || index + 1,
               change: entry.rankChange || 0
             }));
             
             setLeaderboardData(leaderboard.slice(0, 10)); // Top 10 only
+            console.log('Processed leaderboard data:', leaderboard.slice(0, 10));
           } else {
             console.log('No leaderboard data available');
-            // Set empty array for no data
             setLeaderboardData([]);
           }
         } catch (error) {
           console.error('Error in leaderboard:', error);
-          // Keep the leaderboard empty instead of showing error
           setLeaderboardData([]);
         }
       };
@@ -365,21 +386,29 @@ const Dashboard = () => {
           const data = await response.json();
           
           if (data.status === 'success' && data.data) {
-            // Format recent entries
-            const entries = data.data.map(entry => ({
-              id: entry.logID || Math.random().toString(36).substr(2, 9),
+            // Format recent entries with guaranteed unique keys
+            const entries = data.data.map((entry, index) => ({
+              id: `entry-${entry.logID || ''}-${index}`, // Create a guaranteed unique ID
+              logID: entry.logID,
               username: entry.username || 'Unknown User',
               wasteType: entry.wasteType || 'Mixed',
               weight: parseFloat(entry.weight || 0).toFixed(1),
-              date: formatDate(entry.created_at || new Date())
+              date: formatDate(entry.created_at || new Date()),
+              created_at: entry.created_at // Keep original date for sorting
             }));
             
             // Sort by date (newest first) and limit to 10
-            setRecentEntries(
-              entries
-                .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-                .slice(0, 10)
-            );
+            const sortedEntries = entries
+              .sort((a, b) => {
+                // Convert to Date objects for comparison, fallback to 0 if invalid
+                const dateA = a.created_at ? new Date(a.created_at) : new Date(0);
+                const dateB = b.created_at ? new Date(b.created_at) : new Date(0);
+                return dateB - dateA; // Sort descending (newest first)
+              })
+              .slice(0, 10);
+            
+            setRecentEntries(sortedEntries);
+            console.log('Processed recent entries:', sortedEntries);
           } else {
             console.log('No recent entries available');
             setRecentEntries([]);
@@ -431,6 +460,112 @@ const Dashboard = () => {
       setLoading(false);
     }
   };
+  
+  // NEW FUNCTION: Fetch only waste chart data when timeframe changes
+  const fetchWasteChartDataOnly = async (newTimeframe) => {
+    try {
+      setChartLoading(true);
+      
+      // Get auth data without refreshing everything
+      const authData = await checkAuth();
+      if (!authData) {
+        setChartLoading(false);
+        return;
+      }
+      
+      const { token, userId, userEmail } = authData;
+      
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'User-ID': userId,
+        'User-Email': userEmail,
+        'Content-Type': 'application/json'
+      };
+      
+      console.log('Fetching waste chart from:', `${API_BASE_URL}/api/dashboard/waste-chart?timeframe=${newTimeframe}`);
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/waste-chart?timeframe=${newTimeframe}`, {
+        method: 'GET',
+        headers,
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('Error response:', text);
+        throw new Error(`Failed to fetch waste chart data: ${response.status} ${text}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        if (!data.data || data.data.length === 0) {
+          console.log('No waste chart data available');
+          // Set default data for empty response
+          setWasteData([
+            { date: 'Week 1', waste: 0 },
+            { date: 'Week 2', waste: 0 },
+            { date: 'Week 3', waste: 0 },
+            { date: 'Week 4', waste: 0 }
+          ]);
+        } else {
+          setWasteData(data.data);
+        }
+      }
+      setChartLoading(false);
+    } catch (error) {
+      console.error('Error in waste chart:', error);
+      // Set fallback data instead of error
+      setWasteData([
+        { date: 'Week 1', waste: 0 },
+        { date: 'Week 2', waste: 0 },
+        { date: 'Week 3', waste: 0 },
+        { date: 'Week 4', waste: 0 }
+      ]);
+      setChartLoading(false);
+    }
+  };
+
+  const renderRankChangeIcon = (value) => {
+    // Convert percentage change to position change (rough estimate)
+    let positionChange = 0;
+    if (value > 0) {
+      // Positive percentage means improvement
+      if (value < 10) positionChange = 1;
+      else if (value < 25) positionChange = 2;
+      else if (value < 50) positionChange = 3;
+      else positionChange = 4; // Large improvements
+    } else if (value < 0) {
+      // Negative percentage means decline
+      if (value > -10) positionChange = -1;
+      else if (value > -25) positionChange = -2;
+      else if (value > -50) positionChange = -3;
+      else positionChange = -4; // Large declines
+    }
+  
+    if (positionChange > 0) {
+      return (
+        <div className="flex items-center">
+          <ArrowUpRight className="h-4 w-4 text-green-500 mr-1" />
+          <span className="text-green-500">+{positionChange} positions</span>
+        </div>
+      );
+    } else if (positionChange < 0) {
+      return (
+        <div className="flex items-center">
+          <ArrowDownRight className="h-4 w-4 text-red-500 mr-1" />
+          <span className="text-red-500">{positionChange} positions</span>
+        </div>
+      );
+    } else {
+      // No change - use blue color as requested
+      return (
+        <div className="flex items-center">
+          <RefreshCw className="h-4 w-4 text-blue-500 mr-1" />
+          <span className="text-blue-500">No change</span>
+        </div>
+      );
+    }
+  };
 
   // Improved error handling function
   const handleApiError = (error, context) => {
@@ -443,14 +578,15 @@ const Dashboard = () => {
     }
   };
 
-  // Fetch data on component mount and when timeframe changes
+  // Fetch data on component mount
   useEffect(() => {
     fetchDashboardData();
-  }, [timeframe]);
-
+  }, []);
+  
   // Handle timeframe change
   const handleTimeframeChange = (newTimeframe) => {
     setTimeframe(newTimeframe);
+    fetchWasteChartDataOnly(newTimeframe);
   };
 
   // Function to render trend icon
@@ -490,37 +626,12 @@ const Dashboard = () => {
     }
   };
 
-  // Function to render rank change icon
-  const renderRankChangeIcon = (value) => {
-    if (value > 0) {
-      return (
-        <div className="flex items-center">
-          <ArrowUpRight className="h-4 w-4 text-green-500 mr-1" />
-          <span className="text-green-500">+{value}</span>
-        </div>
-      );
-    } else if (value < 0) {
-      return (
-        <div className="flex items-center">
-          <ArrowDownRight className="h-4 w-4 text-red-500 mr-1" />
-          <span className="text-red-500">{value}</span>
-        </div>
-      );
-    } else {
-      return (
-        <div className="flex items-center">
-          <span className="text-gray-500">No change</span>
-        </div>
-      );
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="flex flex-col items-center">
           <RefreshCw className="h-10 w-10 text-green-500 animate-spin mb-4" />
-          <div className="text-lg text-gray-700">Loading dashboard data...</div>
+          <div className="text-lg text-gray-700">Loading  employee management data...</div>
         </div>
       </div>
     );
@@ -547,6 +658,73 @@ const Dashboard = () => {
 
   return (
     <div className="container mx-auto p-4 max-w-6xl bg-gray-50 min-h-screen">
+            {/* Animated Action Bar with Pull Tab - same as in Dashboard */}
+            <div className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-500 ease-in-out ${isActionBarVisible ? 'translate-y-0' : 'translate-y-24'}`}>
+        {/* Pull Tab */}
+        <div 
+          className="absolute -top-8 left-1/2 transform -translate-x-1/2 glass-effect rounded-t-lg px-4 py-2 cursor-pointer flex items-center gap-2 shadow-md z-50 transition-all duration-300 hover:bg-gray-100"
+          onClick={toggleActionBar}
+        >
+          <div className="h-1 w-8 bg-gray-400 rounded-full"></div>
+          {isActionBarVisible ? (
+            <span className="text-xs text-gray-500 flex items-center">
+              Hide <ChevronDown className="h-3 w-3 ml-1" />
+            </span>
+          ) : (
+            <span className="text-xs text-gray-500 flex items-center">
+              Show <ChevronUp className="h-3 w-3 ml-1" />
+            </span>
+          )}
+        </div>
+        
+        {/* Action Bar Background */}
+        <div className="bg-gray-50/50 backdrop-blur-sm border-t border-gray-200 h-24 w-full"></div>
+        
+        {/* Glassmorphic Quick Action Bar */}
+                {/* Glassmorphic Quick Action Bar */}
+                <div className="absolute top-6 left-0 right-0 flex justify-center z-50 px-4">
+          <div className="glass-effect rounded-full px-4 py-3 flex items-center gap-3 md:gap-5 mx-auto shadow-xl">
+            <a 
+              href="/add-waste" 
+              className="bg-green-500 hover:bg-green-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
+              title="Add Waste Entry"
+            >
+              <Plus className="h-5 w-5 md:h-6 md:w-6" />
+              <span className="hidden md:inline ml-2">Add Waste</span>
+            </a>
+            
+            <a 
+              href="/leaderboard" 
+              className="bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
+              title="Leaderboard"
+            >
+              <Clipboard className="h-5 w-5 md:h-6 md:w-6" />
+              <span className="hidden md:inline ml-2">Leaderboard</span>
+            </a>
+
+            <a 
+                href="/wastelogs" 
+                className="bg-purple-500 hover:bg-purple-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
+                title="Employee Table"
+            >
+                <Trash2 className="h-5 w-5 md:h-6 md:w-6" />
+                <span className="hidden md:inline ml-2">Waste Log</span>
+            </a>
+            
+            <a 
+              href="/employeemanagement" 
+              className="bg-amber-500 hover:bg-amber-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
+              title="Dashboard"
+            >
+              <Users className="h-5 w-5 md:h-6 md:w-6" />
+              <span className="hidden md:inline ml-2">Employees</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Add padding to the bottom of your content to avoid overlap with the action bar */}
+      <div className={`transition-all duration-500 ease-in-out ${isActionBarVisible ? 'pb-24' : 'pb-0'}`}></div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800">Main Dashboard <span className="text-brand-500">(Metrics)</span></h1>
         <div className="flex items-center gap-2">
@@ -572,7 +750,22 @@ const Dashboard = () => {
             </span>
           </div>
           <p className="text-2xl font-bold mb-2">{metrics.co2Emissions} kg</p>
-          {renderTrendIcon(metrics.co2Change)}
+          {metrics.co2Change > 0 ? (
+            <div className="flex items-center">
+              <TrendingUp className="h-4 w-4 text-red-500 mr-1" />
+              <span className="text-red-500">+{Math.abs(metrics.co2Change)}%</span>
+            </div>
+          ) : metrics.co2Change < 0 ? (
+            <div className="flex items-center">
+              <TrendingDown className="h-4 w-4 text-green-500 mr-1" />
+              <span className="text-green-500">{Math.abs(metrics.co2Change)}%</span>
+            </div>
+          ) : (
+            <div className="flex items-center">
+              <RefreshCw className="h-4 w-4 text-blue-500 mr-1" />
+              <span className="text-blue-500">No change</span>
+            </div>
+          )}
         </div>
         
         <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-600 transform hover:scale-105 transition-transform duration-300">
@@ -609,27 +802,6 @@ const Dashboard = () => {
           </div>
           <p className="text-2xl font-bold mb-2">#{metrics.currentRank || '-'}</p>
           {renderRankChangeIcon(metrics.rankChange)}
-        </div>
-      </div>
-      
-      {/* Quick Actions Bar */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h3 className="text-lg font-semibold mb-4 text-gray-700">Quick Actions</h3>
-        <div className="flex flex-wrap gap-4">
-          <a href="/add-waste" className="bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-md flex items-center gap-2 transition-all duration-200 transform hover:scale-105 shadow-md">
-            <Plus className="h-5 w-5" /> 
-            <span>Add Waste Entry</span>
-          </a>
-          
-          <a href="/leaderboard" className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md flex items-center gap-2 transition-all duration-200 transform hover:scale-105 shadow-md">
-            <BarChart className="h-5 w-5" /> 
-            <span>Leaderboard</span>
-          </a>
-          
-          <a href="/employees" className="bg-purple-500 hover:bg-purple-600 text-white py-2 px-4 rounded-md flex items-center gap-2 transition-all duration-200 transform hover:scale-105 shadow-md">
-            <Users className="h-5 w-5" /> 
-            <span>Employee Table</span>
-          </a>
         </div>
       </div>
       
@@ -731,7 +903,7 @@ const Dashboard = () => {
         <div className="bg-white rounded-lg shadow-md p-6 transform hover:shadow-lg transition-shadow duration-300">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold text-gray-700">Leaderboard (Top 10)</h3>
-            <button className="px-3 py-1 bg-brand-50 text-brand-600 rounded-md text-sm font-medium hover:bg-brand-100 transition-all duration-200 flex items-center gap-1 transform hover:translate-x-1">
+            <button onClick={handleLeaderBoardVisit} className="px-3 py-1 bg-brand-50 text-brand-600 rounded-md text-sm font-medium hover:bg-brand-100 transition-all duration-200 flex items-center gap-1 transform hover:translate-x-1">
               <span>View All</span>
               <ArrowUpRight className="h-4 w-4 transform rotate-45" />
             </button>
@@ -748,7 +920,11 @@ const Dashboard = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
                 {leaderboardData.map((user, index) => (
-                  <tr key={user.id} className={index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-green-50 hover:bg-green-100'} style={{ transition: 'background-color 0.2s' }}>
+                  <tr 
+                    key={user.id} 
+                    className={index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-green-50 hover:bg-green-100'} 
+                    style={{ transition: 'background-color 0.2s' }}
+                  >
                     <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
                       <div className="flex items-center">
                         {user.rank <= 3 ? (
@@ -781,7 +957,7 @@ const Dashboard = () => {
         <div className="bg-white rounded-lg shadow-md p-6 transform hover:shadow-lg transition-shadow duration-300">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold text-gray-700">Recent Entries</h3>
-            <button className="px-3 py-1 bg-brand-50 text-brand-600 rounded-md text-sm font-medium hover:bg-brand-100 transition-all duration-200 flex items-center gap-1 transform hover:translate-x-1">
+            <button onClick={handleWasteVisit} className="px-3 py-1 bg-brand-50 text-brand-600 rounded-md text-sm font-medium hover:bg-brand-100 transition-all duration-200 flex items-center gap-1 transform hover:translate-x-1">
               <span>View All</span>
               <ArrowUpRight className="h-4 w-4 transform rotate-45" />
             </button>
@@ -798,7 +974,11 @@ const Dashboard = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
                 {recentEntries.map((entry, index) => (
-                  <tr key={entry.id} className={index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-green-50 hover:bg-green-100'} style={{ transition: 'background-color 0.2s' }}>
+                  <tr 
+                    key={entry.id} 
+                    className={index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-green-50 hover:bg-green-100'} 
+                    style={{ transition: 'background-color 0.2s' }}
+                  >
                     <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-700">{entry.date}</td>
                     <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{entry.username}</td>
                     <td className="px-6 py-3 whitespace-nowrap">
