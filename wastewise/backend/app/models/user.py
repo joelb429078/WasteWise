@@ -24,6 +24,7 @@ class User:
 
     @classmethod
     def from_db(cls, db_user):
+        print(db_user)
         return cls(
             user_id=db_user['userID'],
             username=db_user['username'],

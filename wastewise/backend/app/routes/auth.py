@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 import hashlib
 import hmac
 import base64
+import sys
 
 bp = Blueprint('auth', __name__)
 
@@ -35,8 +36,33 @@ def login():
         
         if not is_valid:
             return jsonify({"error": "Invalid email or password"}), 401
+        
+        # Get user information from database
+        from app.utils.db import supabase_client
+        
+        user_response = supabase_client.table('Users')\
+            .select("*")\
+            .eq('email', data['email'])\
+            .execute()
             
-        return jsonify({"status": "success"})
+        if not user_response.data:
+            return jsonify({"error": "User not found"}), 404
+            
+        user = user_response.data[0]
+        
+        # Generate a token (simple version - in production, use proper JWT)
+        token = base64.b64encode(os.urandom(32)).decode()
+            
+        return jsonify({
+            "status": "success",
+            "token": token,
+            "userId": user['userID'],
+            "isAdmin": user['admin'],
+            "user": {
+                "username": user['username'],
+                "email": user['email']
+            }
+        })
         
     except Exception as e:
         print(f"Login error: {str(e)}")

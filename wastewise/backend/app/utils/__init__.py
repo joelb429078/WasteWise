@@ -1,3 +1,3 @@
-from app.utils.db import get_db_connection, supabase_client, test_connection
+from app.utils.db import supabase_client, test_connection
 
-__all__ = ['get_db_connection', 'supabase_client', 'test_connection']
+__all__ = ['supabase_client', 'test_connection']

@@ -22,7 +22,7 @@ export const AuthInput = ({
         required={required}
         className={`
           peer block w-full px-3 py-2 border-b-2 bg-transparent
-          placeholder-transparent focus:outline-none transition-all duration-300
+          placeholder-transparent focus:outline-none transition-all duration-300 text-black
           ${error ? 'border-red-500' : isFocused || value 
             ? 'border-green-500' 
             : 'border-gray-300'}
