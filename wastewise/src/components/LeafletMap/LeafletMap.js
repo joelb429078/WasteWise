@@ -109,6 +109,40 @@ const MAP_ATTRIBUTIONS = {
   terrain: 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under <a href="http://creativecommons.org/licenses/by-sa/3.0">CC BY SA</a>',
 };
 
+// Fixed UK locations for map points
+const UK_LOCATIONS = [
+  { name: "London", position: [51.5074, -0.1278] },
+  { name: "Manchester", position: [53.4808, -2.2426] },
+  { name: "Birmingham", position: [52.4862, -1.8904] },
+  { name: "Glasgow", position: [55.8642, -4.2518] },
+  { name: "Liverpool", position: [53.4084, -2.9916] },
+  { name: "Bristol", position: [51.4545, -2.5879] },
+  { name: "Edinburgh", position: [55.9533, -3.1883] },
+  { name: "Leeds", position: [53.8008, -1.5491] },
+  { name: "Sheffield", position: [53.3811, -1.4701] },
+  { name: "Newcastle", position: [54.9783, -1.6178] },
+  { name: "Cardiff", position: [51.4816, -3.1791] },
+  { name: "Belfast", position: [54.5973, -5.9301] },
+  { name: "Nottingham", position: [52.9548, -1.1581] },
+  { name: "Southampton", position: [50.9097, -1.4044] },
+  { name: "Aberdeen", position: [57.1497, -2.0943] },
+  { name: "Brighton", position: [50.8225, -0.1372] },
+  { name: "Plymouth", position: [50.3755, -4.1427] },
+  { name: "Oxford", position: [51.7520, -1.2577] },
+  { name: "Cambridge", position: [52.2053, 0.1218] },
+  { name: "York", position: [53.9600, -1.0873] },
+  { name: "Exeter", position: [50.7184, -3.5339] },
+  { name: "Swansea", position: [51.6214, -3.9436] },
+  { name: "Derby", position: [52.9225, -1.4746] },
+  { name: "Leicester", position: [52.6369, -1.1398] },
+  { name: "Reading", position: [51.4543, -0.9781] },
+  { name: "Milton Keynes", position: [52.0406, -0.7594] },
+  { name: "Coventry", position: [52.4068, -1.5197] },
+  { name: "Sunderland", position: [54.9060, -1.3834] },
+  { name: "Portsmouth", position: [50.8198, -1.0880] },
+  { name: "Norwich", position: [52.6309, 1.2974] }
+];
+
 // Create custom marker icons
 const createCustomIcon = (rank) => {
   // Define marker color and class based on rank
@@ -184,6 +218,23 @@ const createCustomPopupContent = (point) => {
   `;
 };
 
+// Function to assign fixed UK locations to map points
+const assignFixedLocations = (points) => {
+  if (!points || points.length === 0) return [];
+  
+  return points.map((point, index) => {
+    // Use a modulo operation to loop through the UK locations if we have more points than locations
+    const locationIndex = index % UK_LOCATIONS.length;
+    const location = UK_LOCATIONS[locationIndex];
+    
+    return {
+      ...point,
+      position: location.position,
+      locationName: location.name // Add the location name for reference
+    };
+  });
+};
+
 const LeafletMap = ({ 
   points = [],
   mapStyle = 'voyager',
@@ -191,11 +242,14 @@ const LeafletMap = ({
   showCircles = true,
   highlightUserBusiness = true,
   userBusinessId = null,
-  initialZoom = 2
+  initialZoom = 6 // Set default zoom to better fit UK
 }) => {
   const [isClient, setIsClient] = useState(false);
   const [selectedMapStyle, setSelectedMapStyle] = useState(mapStyle);
   const mapRef = useRef(null);
+  
+  // Convert input points to have fixed UK locations
+  const pointsWithFixedLocations = assignFixedLocations(points);
   
   // Fix Leaflet icon issue and add custom styles
   useEffect(() => {
@@ -221,11 +275,11 @@ const LeafletMap = ({
   
   // Function to fit map bounds to all points
   const fitBoundsToPoints = () => {
-    if (mapRef.current && points.length > 0) {
+    if (mapRef.current && pointsWithFixedLocations.length > 0) {
       const map = mapRef.current;
       
       // Create bounds from all points
-      const bounds = L.latLngBounds(points.map(p => p.position));
+      const bounds = L.latLngBounds(pointsWithFixedLocations.map(p => p.position));
       
       // Fit map to bounds with padding
       map.fitBounds(bounds, { padding: [50, 50] });
@@ -234,23 +288,16 @@ const LeafletMap = ({
   
   // Effect to fit bounds when points change
   useEffect(() => {
-    if (isClient && points.length > 0) {
+    if (isClient && pointsWithFixedLocations.length > 0) {
       // Small delay to ensure map is fully loaded
       setTimeout(fitBoundsToPoints, 100);
     }
-  }, [isClient, points]);
+  }, [isClient, pointsWithFixedLocations]);
   
-  // Calculate map center based on points
+  // Calculate map center based on UK center
   const getMapCenter = () => {
-    if (!points || points.length === 0) {
-      return [20, 0]; // Default: Center of the world
-    }
-    
-    // Calculate average of all coordinates
-    const sumLat = points.reduce((sum, point) => sum + point.position[0], 0);
-    const sumLng = points.reduce((sum, point) => sum + point.position[1], 0);
-    
-    return [sumLat / points.length, sumLng / points.length];
+    // Center on UK (approximately)
+    return [54.0, -2.0];
   };
   
   // Get tile style and attribution
@@ -303,7 +350,7 @@ const LeafletMap = ({
         </div>
         
         {/* Render points with circles */}
-        {points.map((point) => (
+        {pointsWithFixedLocations.map((point) => (
           <React.Fragment key={point.id}>
             <Marker
               position={point.position}
@@ -311,7 +358,11 @@ const LeafletMap = ({
             >
               <Popup>
                 <div dangerouslySetInnerHTML={{ 
-                  __html: createCustomPopupContent(point) 
+                  __html: createCustomPopupContent({
+                    ...point,
+                    // Update name to include location for clarity
+                    name: `${point.name} (${point.locationName || 'UK'})`
+                  }) 
                 }} />
               </Popup>
             </Marker>
@@ -320,7 +371,7 @@ const LeafletMap = ({
             {showCircles && (
               <Circle
                 center={point.position}
-                radius={point.rank <= 3 ? 80000 : point.rank <= 10 ? 60000 : 40000}
+                radius={point.rank <= 3 ? 20000 : point.rank <= 10 ? 15000 : 10000} // Smaller radii for UK scale
                 pathOptions={{
                   color: point.rank === 1 ? '#FFD700' : 
                          point.rank === 2 ? '#C0C0C0' : 

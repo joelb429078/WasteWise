@@ -6,8 +6,16 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { PieChart, Pie, Cell } from 'recharts';
 import { Clock, Calendar, Award, Trash2, Users, Plus, BarChart, TrendingUp, 
   TrendingDown, ArrowUpRight, ArrowDownRight, Layers, RefreshCw, Clipboard,
-  ChevronDown, ChevronUp } from 'lucide-react';
+  ChevronDown, ChevronUp, ArrowLeft, LogOut, Trophy, ArrowUp, ArrowDown } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { 
+  getMockMetrics, 
+  getMockWasteChart, 
+  getMockWasteTypes, 
+  getMockLeaderboardData, 
+  getMockWasteLogs 
+} from '../../components/data/mockData';
+
 
 const Dashboard = () => {
   const router = useRouter();
@@ -16,6 +24,25 @@ const Dashboard = () => {
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const handleBack = () => {
+    router.push("/");
+  };
+  
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      // Clear local storage items
+      localStorage.removeItem('userEmail');
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('userId');
+      localStorage.removeItem('isAdmin');
+      // Redirect to login
+      router.push("/login");
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
   };
 
   // State for all our data
@@ -44,6 +71,7 @@ const Dashboard = () => {
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [recentEntries, setRecentEntries] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null); // Added currentUser state
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(false); // New state for chart-specific loading
   const [activeButton, setActiveButton] = useState(null);
@@ -116,13 +144,14 @@ const Dashboard = () => {
           // Check if user is admin (if you have a way to determine this)
           const { data } = await supabase
             .from('Users')
-            .select('admin')
+            .select('*') // Select all columns to get the full user data
             .eq('email', userEmail)
             .single();
           
           if (data) {
             localStorage.setItem('isAdmin', data.admin);
             setIsAdmin(data.admin);
+            setCurrentUser(data); // Store current user data
           }
         } else {
           // No valid session found
@@ -131,6 +160,18 @@ const Dashboard = () => {
             window.location.href = '/login';
           }, 2000);
           return null;
+        }
+      } else {
+        // Session values exist in localStorage, fetch user data
+        const { data } = await supabase
+          .from('Users')
+          .select('*')
+          .eq('email', userEmail)
+          .single();
+        
+        if (data) {
+          setIsAdmin(data.admin);
+          setCurrentUser(data); // Store current user data
         }
       }
       
@@ -165,8 +206,91 @@ const Dashboard = () => {
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
-  // Function to fetch all dashboard data
+  // Then update the fetchDashboardData function:
   const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Check auth to make sure we have user data
+      const authData = await checkAuth();
+      if (!authData) {
+        setLoading(false);
+        return;
+      }
+      
+      // Get metrics from mock data
+      const metricsData = getMockMetrics();
+      setMetrics({
+        co2Emissions: metricsData.co2Emissions || 0,
+        co2Change: metricsData.co2Change || 0,
+        totalWaste: metricsData.totalWaste || 0,
+        wasteChange: metricsData.wasteChange || 0,
+        mostRecentLog: {
+          date: metricsData.mostRecentLog?.date 
+            ? formatDate(metricsData.mostRecentLog.date) 
+            : formatDate(new Date()),
+          weight: metricsData.mostRecentLog?.weight || 0
+        },
+        mostRecentChange: metricsData.mostRecentChange || 0,
+        currentRank: metricsData.currentRank || 0,
+        rankChange: metricsData.rankChange || 0
+      });
+      
+      // Get waste chart data
+      const chartData = getMockWasteChart(timeframe);
+      setWasteData(chartData);
+      
+      // Get waste types data
+      const typesData = getMockWasteTypes();
+      setWasteTypeData(typesData);
+      
+      // Get leaderboard data
+      const leaderboardData = getMockLeaderboardData();
+      setLeaderboardData(leaderboardData.slice(0, 5)); // Top 5 for dashboard
+      
+      // Get recent entries
+      const entries = getMockWasteLogs();
+      const formattedEntries = entries
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 10)
+        .map((entry, index) => ({
+          id: `entry-${entry.logID || ''}-${index}`,
+          logID: entry.logID,
+          username: entry.username || 'Unknown User',
+          wasteType: entry.wasteType || 'Mixed',
+          weight: parseFloat(entry.weight || 0).toFixed(1),
+          date: formatDate(entry.created_at || new Date()),
+          created_at: entry.created_at
+        }));
+      
+      setRecentEntries(formattedEntries);
+      
+      // Update last updated time
+      setLastUpdated(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      setError('Failed to load dashboard data. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  // Also update the fetchWasteChartDataOnly function:
+  const fetchWasteChartDataOnly = async (newTimeframe) => {
+    try {
+      setChartLoading(true);
+      const chartData = getMockWasteChart(newTimeframe);
+      setWasteData(chartData);
+      setChartLoading(false);
+    } catch (error) {
+      console.error('Error fetching waste chart data:', error);
+      setChartLoading(false);
+    }
+  };
+
+  // Function to fetch all dashboard data
+  const fetchDashboardDataold= async () => {
     try {
       setLoading(true);
       setError(null);
@@ -325,7 +449,8 @@ const Dashboard = () => {
       const fetchLeaderboardData = async () => {
         try {
           console.log('Fetching leaderboard from:', `${API_BASE_URL}/api/employee/leaderboard`);
-          const response = await fetch(`${API_BASE_URL}/api/employee/leaderboard`, {
+          
+          const response = await fetch(`${API_BASE_URL}/api/employee/leaderboard?timeframe=season`, {
             method: 'GET',
             headers,
             credentials: 'include'
@@ -340,24 +465,71 @@ const Dashboard = () => {
           const data = await response.json();
           
           if (data.status === 'success' && data.data) {
-            // Data is already deduplicated on the backend, just format for display
-            const leaderboard = data.data.map((entry, index) => ({
-              id: `leaderboard-${entry.businessID}-${index}`, // Guaranteed unique ID
-              username: entry.username || `User ${index + 1}`,
-              totalWaste: Math.round(entry.seasonalWaste || 0),
-              rank: entry.rank || index + 1,
-              change: entry.rankChange || 0
-            }));
+            // Process companies with proper waste per employee sorting (lower is better)
+            const processedCompanies = data.data
+              .sort((a, b) => {
+                // Sort by waste per employee (lower is better)
+                const wastePerEmployeeA = parseFloat(a.wastePerEmployee || a.formattedWastePerEmployee || 1000);
+                const wastePerEmployeeB = parseFloat(b.wastePerEmployee || b.formattedWastePerEmployee || 1000);
+                return wastePerEmployeeA - wastePerEmployeeB;
+              })
+              .map((entry, index) => {
+                // Get rank change value and determine the appropriate icon and class
+                const rankChange = entry.rankChange || 0;
+                let rankChangeIcon = null;
+                let rankChangeClass = '';
+
+                if (rankChange > 0) {
+                  rankChangeIcon = <ArrowUp className="h-4 w-4 mr-1" />;
+                  rankChangeClass = 'text-green-500';
+                } else if (rankChange < 0) {
+                  rankChangeIcon = <ArrowDown className="h-4 w-4 mr-1" />;
+                  rankChangeClass = 'text-red-500';
+                } else {
+                  rankChangeIcon = <RefreshCw className="h-4 w-4 mr-1" />;
+                  rankChangeClass = 'text-blue-500';
+                }
+
+                // Ensure we have all necessary fields with appropriate fallbacks
+                return {
+                  id: `leaderboard-${entry.businessID}-${index}`,
+                  businessID: entry.businessID,
+                  companyName: entry.companyName || entry.username || `Company ${index + 1}`,
+                  rank: index + 1, // Rank based on our sort (1-based)
+                  wastePerEmployee: parseFloat(entry.wastePerEmployee || 0),
+                  formattedWastePerEmployee: entry.formattedWastePerEmployee || 
+                                           (entry.wastePerEmployee ? parseFloat(entry.wastePerEmployee).toFixed(1) : "0.0"),
+                  rankChange: rankChange,
+                  rankChangeIcon: rankChangeIcon,
+                  rankChangeClass: rankChangeClass,
+                  seasonalWaste: entry.seasonalWaste || 0,
+                  username: entry.username || entry.companyName || `Company ${index + 1}`
+                };
+              });
             
-            setLeaderboardData(leaderboard.slice(0, 10)); // Top 10 only
-            console.log('Processed leaderboard data:', leaderboard.slice(0, 10));
+            setLeaderboardData(processedCompanies.slice(0, 10)); // Top 10 only
+            console.log('Processed leaderboard data:', processedCompanies.slice(0, 5));
           } else {
             console.log('No leaderboard data available');
-            setLeaderboardData([]);
+            // Fallback data if no data is returned
+            setLeaderboardData([
+              { id: 1, businessID: 24, companyName: "EcoCare Consulting", rank: 1, formattedWastePerEmployee: "1.8", rankChange: 2, rankChangeIcon: <ArrowUp className="h-4 w-4 mr-1" />, rankChangeClass: "text-green-500" },
+              { id: 2, businessID: 21, companyName: "EcoTech Solutions", rank: 2, formattedWastePerEmployee: "3.2", rankChange: -1, rankChangeIcon: <ArrowDown className="h-4 w-4 mr-1" />, rankChangeClass: "text-red-500" },
+              { id: 3, businessID: 25, companyName: "Urban Recyclers Ltd", rank: 3, formattedWastePerEmployee: "4.1", rankChange: 1, rankChangeIcon: <ArrowUp className="h-4 w-4 mr-1" />, rankChangeClass: "text-green-500" },
+              { id: 4, businessID: 23, companyName: "Sustainable Foods Inc", rank: 4, formattedWastePerEmployee: "4.8", rankChange: -2, rankChangeIcon: <ArrowDown className="h-4 w-4 mr-1" />, rankChangeClass: "text-red-500" },
+              { id: 5, businessID: 22, companyName: "Green Planet Logistics", rank: 5, formattedWastePerEmployee: "5.3", rankChange: 0, rankChangeIcon: <RefreshCw className="h-4 w-4 mr-1" />, rankChangeClass: "text-blue-500" }
+            ]);
           }
         } catch (error) {
           console.error('Error in leaderboard:', error);
-          setLeaderboardData([]);
+          // Fallback data in case of error
+          setLeaderboardData([
+            { id: 1, businessID: 24, companyName: "EcoCare Consulting", rank: 1, formattedWastePerEmployee: "1.8", rankChange: 2, rankChangeIcon: <ArrowUp className="h-4 w-4 mr-1" />, rankChangeClass: "text-green-500" },
+            { id: 2, businessID: 21, companyName: "EcoTech Solutions", rank: 2, formattedWastePerEmployee: "3.2", rankChange: -1, rankChangeIcon: <ArrowDown className="h-4 w-4 mr-1" />, rankChangeClass: "text-red-500" },
+            { id: 3, businessID: 25, companyName: "Urban Recyclers Ltd", rank: 3, formattedWastePerEmployee: "4.1", rankChange: 1, rankChangeIcon: <ArrowUp className="h-4 w-4 mr-1" />, rankChangeClass: "text-green-500" },
+            { id: 4, businessID: 23, companyName: "Sustainable Foods Inc", rank: 4, formattedWastePerEmployee: "4.8", rankChange: -2, rankChangeIcon: <ArrowDown className="h-4 w-4 mr-1" />, rankChangeClass: "text-red-500" },
+            { id: 5, businessID: 22, companyName: "Green Planet Logistics", rank: 5, formattedWastePerEmployee: "5.3", rankChange: 0, rankChangeIcon: <RefreshCw className="h-4 w-4 mr-1" />, rankChangeClass: "text-blue-500" }
+          ]);
         }
       };
       
@@ -462,7 +634,7 @@ const Dashboard = () => {
   };
   
   // NEW FUNCTION: Fetch only waste chart data when timeframe changes
-  const fetchWasteChartDataOnly = async (newTimeframe) => {
+  const fetchWasteChartDataOnlyOLD = async (newTimeframe) => {
     try {
       setChartLoading(true);
       
@@ -658,8 +830,27 @@ const Dashboard = () => {
 
   return (
     <div className="container mx-auto p-4 max-w-6xl bg-gray-50 min-h-screen">
-            {/* Animated Action Bar with Pull Tab - same as in Dashboard */}
-            <div className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-500 ease-in-out ${isActionBarVisible ? 'translate-y-0' : 'translate-y-24'}`}>
+        <div className="flex justify-between mb-6">
+          <button
+            onClick={handleBack}
+            className="bg-gray-200 text-gray-700 p-3 rounded-full shadow-lg hover:bg-gray-300 transition-colors flex items-center"
+            aria-label="Back"
+          >
+            <ArrowLeft className="h-5 w-5 mr-2" />
+            <span className="font-medium">Back</span>
+          </button>
+          
+          <button
+            onClick={handleLogout}
+            className="bg-red-100 text-red-600 p-3 rounded-full shadow-lg hover:bg-red-200 transition-colors flex items-center"
+            aria-label="Logout"
+          >
+            <span className="font-medium mr-2">Logout</span>
+            <LogOut className="h-5 w-5" />
+          </button>
+        </div>
+        {/* Animated Action Bar with Pull Tab - same as in Dashboard */}
+        <div className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-500 ease-in-out ${isActionBarVisible ? 'translate-y-0' : 'translate-y-24'}`}>
         {/* Pull Tab */}
         <div 
           className="absolute -top-8 left-1/2 transform -translate-x-1/2 glass-effect rounded-t-lg px-4 py-2 cursor-pointer flex items-center gap-2 shadow-md z-50 transition-all duration-300 hover:bg-gray-100"
@@ -902,54 +1093,93 @@ const Dashboard = () => {
         {/* Leaderboard */}
         <div className="bg-white rounded-lg shadow-md p-6 transform hover:shadow-lg transition-shadow duration-300">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-semibold text-gray-700">Leaderboard (Top 10)</h3>
+            <h3 className="text-lg font-semibold text-gray-700 flex items-center">
+              <Trophy className="h-5 w-5 mr-2 text-green-600" />
+              Waste Reduction Leaderboard
+            </h3>
             <button onClick={handleLeaderBoardVisit} className="px-3 py-1 bg-brand-50 text-brand-600 rounded-md text-sm font-medium hover:bg-brand-100 transition-all duration-200 flex items-center gap-1 transform hover:translate-x-1">
               <span>View All</span>
               <ArrowUpRight className="h-4 w-4 transform rotate-45" />
             </button>
           </div>
-          <div className="overflow-y-auto max-h-80">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead>
-                <tr className="bg-green-600">
-                  <th className="px-6 py-3 text-left text-xs font-bold text-white uppercase tracking-wider rounded-tl-lg">Rank</th>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">User</th>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Total Waste (kg)</th>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-white uppercase tracking-wider rounded-tr-lg">Change</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-100">
-                {leaderboardData.map((user, index) => (
-                  <tr 
-                    key={user.id} 
-                    className={index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-green-50 hover:bg-green-100'} 
-                    style={{ transition: 'background-color 0.2s' }}
-                  >
-                    <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                      <div className="flex items-center">
-                        {user.rank <= 3 ? (
-                          <div className={`h-6 w-6 rounded-full flex items-center justify-center mr-2 
-                            ${user.rank === 1 ? 'bg-yellow-100 text-yellow-600' : 
-                              user.rank === 2 ? 'bg-blue-100 text-blue-600' : 
-                                'bg-orange-100 text-orange-600'}`}>
-                            {user.rank}
+          <div className="overflow-x-hidden overflow-y-auto max-h-80">
+            {loading ? (
+              <div className="py-12 flex flex-col items-center justify-center">
+                <RefreshCw className="h-8 w-8 text-green-500 animate-spin mb-4" />
+                <p className="text-gray-500">Loading leaderboard data...</p>
+              </div>
+            ) : (
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead>
+                  <tr className="bg-green-600">
+                    <th className="px-6 py-3 text-left text-xs font-bold text-white uppercase tracking-wider rounded-tl-lg">Rank</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Company</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Waste/Employee</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-white uppercase tracking-wider rounded-tr-lg">Change</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {leaderboardData.slice(0, 5).map((company, index) => (
+                    <tr 
+                      key={company.id || index} 
+                      className={`${index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-green-50 hover:bg-green-100'} 
+                        ${currentUser && company.businessID === currentUser.businessID ? 'bg-green-100 hover:bg-green-200' : ''}`} 
+                      style={{ transition: 'background-color 0.2s' }}
+                    >
+                      <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                        <div className="flex items-center">
+                          {company.rank <= 3 ? (
+                            <div className={`h-6 w-6 rounded-full flex items-center justify-center mr-2 
+                              ${company.rank === 1 ? 'bg-yellow-100 text-yellow-600' : 
+                                company.rank === 2 ? 'bg-gray-100 text-gray-600' : 
+                                  'bg-orange-100 text-orange-600'}`}>
+                              {company.rank}
+                            </div>
+                          ) : (
+                            <div className="h-6 w-6 rounded-full flex items-center justify-center mr-2 bg-brand-100 text-brand-600">
+                              {company.rank}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {currentUser && company.businessID === currentUser.businessID ? (
+                          <div className="flex items-center">
+                            <span>{company.companyName || company.username}</span>
+                            <span className="ml-2 px-2 py-0.5 text-xs leading-tight font-semibold rounded-full bg-green-100 text-green-800">
+                              You
+                            </span>
                           </div>
                         ) : (
-                          <div className="h-6 w-6 rounded-full flex items-center justify-center mr-2 bg-brand-100 text-brand-600">
-                            {user.rank}
+                          company.companyName || company.username
+                        )}
+                      </td>
+                      <td className="px-6 py-3 whitespace-nowrap">
+                        <span className="text-sm font-bold text-gray-900">{company.formattedWastePerEmployee || company.wastePerEmployee} kg</span>
+                      </td>
+                      <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-700">
+                        {company.rankChange === '-' || company.rankChange === 0 ? (
+                          <div className="flex items-center text-blue-500">
+                            <RefreshCw className="h-4 w-4 mr-1" />
+                            <span>No change</span>
+                          </div>
+                        ) : company.rankChange > 0 ? (
+                          <div className="flex items-center text-green-500">
+                            <ArrowUp className="h-4 w-4 mr-1" />
+                            <span>+{company.rankChange} position{company.rankChange !== 1 ? 's' : ''}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-red-500">
+                            <ArrowDown className="h-4 w-4 mr-1" />
+                            <span>{company.rankChange} position{Math.abs(company.rankChange) !== 1 ? 's' : ''}</span>
                           </div>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{user.username}</td>
-                    <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-700">{user.totalWaste}</td>
-                    <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-700">
-                      {renderRankChangeIcon(user.change)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
         
@@ -1000,6 +1230,7 @@ const Dashboard = () => {
         </div>
       </div>
     </div>
+    
   );
 };
 

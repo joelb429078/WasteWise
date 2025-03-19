@@ -1,58 +1,94 @@
+'use client';
+import { useState } from 'react';
+
 export const FeatureSection = () => {
-    const features = [
-      {
-        title: "Real-time Tracking",
-        description: "Monitor waste collection and disposal in real-time with our advanced tracking system.",
-        icon: (
-          <svg className="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        )
-      },
-      {
-        title: "Analytics Dashboard",
-        description: "Gain insights through comprehensive analytics and reporting tools.",
-        icon: (
-          <svg className="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-        )
-      },
-      {
-        title: "Sustainability Metrics",
-        description: "Track your environmental impact and progress towards sustainability goals.",
-        icon: (
-          <svg className="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-        )
-      }
-    ];
+  const [activeFeature, setActiveFeature] = useState(0);
   
-    return (
-      <div className="py-12 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="lg:text-center">
-            <h2 className="text-base text-green-600 font-semibold tracking-wide uppercase">Features</h2>
-            <p className="mt-2 text-3xl leading-8 font-extrabold tracking-tight text-gray-900 sm:text-4xl">
-              Smart Waste Management Solutions
-            </p>
+  const features = [
+    {
+      title: "Real-time Tracking",
+      description: "Monitor waste collection and disposal in real-time with our advanced tracking system. Get instant notifications and status updates.",
+      icon: (
+        <svg className="w-10 h-10 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="10" strokeWidth="1.5" />
+          <path d="M12 6v6l4 2" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ),
+      bgColor: "bg-green-50",
+      hoverColor: "group-hover:bg-green-100"
+    },
+    {
+      title: "Analytics Dashboard",
+      description: "Gain insights through comprehensive analytics and reporting tools. Visualize trends and make data-driven decisions.",
+      icon: (
+        <svg className="w-10 h-10 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <rect x="2" y="3" width="20" height="18" rx="2" strokeWidth="1.5" />
+          <path d="M7 16l3-4 3 4 4-6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ),
+      bgColor: "bg-blue-50",
+      hoverColor: "group-hover:bg-blue-100"
+    },
+    {
+      title: "Sustainability Metrics",
+      description: "Track your environmental impact and progress towards sustainability goals. Measure carbon footprint reduction and more.",
+      icon: (
+        <svg className="w-10 h-10 text-teal-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M12 2l.324.001a10 10 0 019.675 9.675L22 12l-.001.324a10 10 0 01-9.675 9.675L12 22l-.324-.001a10 10 0 01-9.675-9.675L2 12l.001-.324a10 10 0 019.675-9.675L12 2z" strokeWidth="1.5" />
+          <path d="M12 16a4 4 0 100-8 4 4 0 000 8z" strokeWidth="1.5" />
+          <path d="M12 7V5M17 12h2M12 17v2M7 12H5" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      ),
+      bgColor: "bg-teal-50",
+      hoverColor: "group-hover:bg-teal-100"
+    }
+  ];
+
+  return (
+    <div className="py-16 bg-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center">
+          <div className="inline-block px-3 py-1 rounded-full bg-green-100 text-green-700 font-medium text-sm mb-4">
+            FEATURES
           </div>
-  
-          <div className="mt-10">
-            <div className="space-y-10 md:space-y-0 md:grid md:grid-cols-3 md:gap-x-8 md:gap-y-10">
-              {features.map((feature, index) => (
-                <div key={index} className="relative">
-                  <div className="absolute flex items-center justify-center h-12 w-12 rounded-md bg-green-50">
-                    {feature.icon}
+          <h2 className="text-3xl font-extrabold text-gray-900 sm:text-4xl lg:text-5xl">
+            Smart Waste Management Solutions
+          </h2>
+          <p className="mt-4 max-w-2xl mx-auto text-xl text-gray-500">
+            Our platform provides everything you need to optimize your waste management processes.
+          </p>
+        </div>
+
+        <div className="mt-16">
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
+            {features.map((feature, index) => (
+              <div
+                key={index}
+                className={`group relative rounded-2xl p-6 transition-all duration-300 transform hover:-translate-y-2 cursor-pointer ${
+                  activeFeature === index ? 'ring-2 ring-green-500 shadow-xl' : 'shadow-md hover:shadow-xl'
+                }`}
+                onMouseEnter={() => setActiveFeature(index)}
+                onClick={() => setActiveFeature(index)}
+              >
+                <div className={`absolute inset-0 rounded-2xl ${feature.bgColor} transition-colors duration-300 ${feature.hoverColor}`}></div>
+                
+                <div className="relative flex flex-col h-full">
+                  <div className="mb-5">
+                    <span className={`inline-flex items-center justify-center p-3 rounded-xl
+                                    ${activeFeature === index ? 'bg-white shadow-md' : 'bg-white bg-opacity-60'} 
+                                    transition-all duration-300`}>
+                      {feature.icon}
+                    </span>
                   </div>
-                  <p className="ml-16 text-lg leading-6 font-medium text-gray-900">{feature.title}</p>
-                  <p className="mt-2 ml-16 text-base text-gray-500">{feature.description}</p>
+                  
+                  <h3 className="text-xl font-bold text-gray-900 mb-3">{feature.title}</h3>
+                  <p className="text-gray-500 flex-grow">{feature.description}</p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};

@@ -6,9 +6,10 @@ import {
   Search, Filter, Edit, Save, X, Trash2, ArrowLeft, ArrowRight, 
   RefreshCw, Clock, Calendar, User, Package, FileText, MapPin, 
   Image, ChevronDown, ChevronUp, Download, Eye, Check, AlertCircle,
-  Info, Plus, BarChart2, SlidersHorizontal, FileSpreadsheet, Printer, BarChart, Users, Clipboard
+  Info, Plus, BarChart2, SlidersHorizontal, FileSpreadsheet, Printer, BarChart, Users, Clipboard, LogOut
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import { useRouter } from "next/navigation";
 
 const WasteLogPage = () => {
   // State variables
@@ -64,6 +65,27 @@ const WasteLogPage = () => {
     recentActivity: ''
   });
   
+  const router = useRouter();
+
+  const handleBack = () => {
+    router.push("/dashboard");
+  };
+  
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      // Clear local storage items
+      localStorage.removeItem('userEmail');
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('userId');
+      localStorage.removeItem('isAdmin');
+      // Redirect to login
+      router.push("/login");
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
+
   // Ref for scrolling to top on page change
   const tableTopRef = useRef(null);
   
@@ -670,6 +692,27 @@ const WasteLogPage = () => {
       {/* Header */}
       <div className="bg-gradient-to-r from-green-600 to-green-700 p-8 text-white">
         <div className="container mx-auto max-w-7xl">
+
+          <div className="flex justify-between mb-6">
+            <button
+              onClick={handleBack}
+              className="bg-white/20 text-white p-3 rounded-full shadow-lg hover:bg-white/30 transition-colors flex items-center"
+              aria-label="Back to Dashboard"
+            >
+              <ArrowLeft className="h-5 w-5 mr-2" />
+              <span className="font-medium">Back</span>
+            </button>
+            
+            <button
+              onClick={handleLogout}
+              className="bg-white/20 text-white p-3 rounded-full shadow-lg hover:bg-white/30 transition-colors flex items-center"
+              aria-label="Logout"
+            >
+              <span className="font-medium mr-2">Logout</span>
+              <LogOut className="h-5 w-5" />
+            </button>
+          </div>
+
           <h1 className="text-3xl font-bold mb-2">Waste Log Records</h1>
           <p className="text-green-100">{isAdmin ? `${businessName || 'Company'} — All Records` : 'Your Waste Log Records'}</p>
           

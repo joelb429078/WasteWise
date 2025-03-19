@@ -9,6 +9,10 @@ import {
   Eye, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useRouter } from "next/navigation";
+
+// Import mock data utility
+import { addMockWasteLog } from '@/components/data/mockData';
 
 const AddWasteForm = () => {
   // Form stages
@@ -28,6 +32,7 @@ const AddWasteForm = () => {
     weight: '',
     units: 'kg',
     location: '',
+    notes: '',
     date: format(new Date(), 'yyyy-MM-dd'),
     userID: '', // Will be populated in useEffect
     businessID: '' // Will be populated in useEffect
@@ -45,6 +50,38 @@ const AddWasteForm = () => {
     'Paper', 'Plastic', 'Food', 'Glass', 'Metal', 'Electronics', 'Mixed', 'Other'
   ]);
   
+  // New state for presets
+  const [showPresets, setShowPresets] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState(null);
+
+  // Preset options
+  const presets = [
+    {
+      id: 'preset1',
+      name: 'Food Waste',
+      wasteType: 'Food',
+      weight: 1.2,
+      confidence: 0.92,
+      description: 'Small green UK food waste bin',
+      message: 'Image analyzed: Food waste detected in green food waste bin'
+    },
+    {
+      id: 'preset2',
+      name: 'Mixed Waste',
+      wasteType: 'Mixed',
+      weight: 6.5,
+      confidence: 0.78,
+      description: 'Red foot operated bin for mixed waste',
+      message: 'Image analyzed: Mixed waste detected, accounting for bin/container weight'
+    }
+  ];
+  
+  const router = useRouter();
+
+  const handleBack = () => {
+    router.push("/dashboard");
+  };
+
   // Refs
   const fileInputRef = useRef(null);
   const formContainerRef = useRef(null);
@@ -86,7 +123,11 @@ const AddWasteForm = () => {
         return;
       }
       
-      setUser(userData);
+      setUser({
+        ...userData,
+        email: session.user.email // Add email for AI analysis backup logic
+      });
+      
       setFormData(prev => ({
         ...prev,
         userID: userData.userID,
@@ -105,6 +146,63 @@ const AddWasteForm = () => {
       ...prev,
       [name]: value
     }));
+  };
+  
+  // Add utility function to convert image to base64
+  const getBase64FromFile = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = error => reject(error);
+    });
+  };
+  
+  // Simulated AI/ML analysis function
+  const simulateAdvancedWasteAnalysis = (imageBase64, fileName) => {
+    // For the demo, we'll always show the presets
+    // This function is still used as a fallback
+    const sizeInMB = (imageBase64.length * 0.75) / (1024 * 1024);
+    const randomFactor = Math.random();
+    
+    let wasteType = 'Mixed';
+    let weight = 1.0;
+    let confidence = 0.65;
+
+    if (sizeInMB > 3) {
+      wasteType = randomFactor > 0.5 ? 'Mixed' : 'Plastic';
+      weight = 2.5 + (randomFactor * 2);
+      confidence = 0.85;
+    } else if (sizeInMB > 1) {
+      wasteType = randomFactor > 0.7 ? 'Food' : 'Paper';
+      weight = 0.5 + (randomFactor * 1.5);
+      confidence = 0.80;
+    } else {
+      wasteType = randomFactor > 0.6 ? 'Glass' : 'Metal';
+      weight = 0.3 + (randomFactor * 0.7);
+      confidence = 0.75;
+    }
+
+    fileName = fileName.toLowerCase();
+    if (fileName.includes('green') || fileName.includes('bottle')) {
+      wasteType = 'Glass';
+      confidence += 0.1;
+    } else if (fileName.includes('food') || fileName.includes('eat')) {
+      wasteType = 'Food';
+      confidence += 0.1;
+    } else if (fileName.includes('paper') || fileName.includes('cardboard')) {
+      wasteType = 'Paper';
+      confidence += 0.1;
+    } else if (fileName.includes('plastic')) {
+      wasteType = 'Plastic';
+      confidence += 0.1;
+    }
+
+    return {
+      wasteType,
+      weight: Number(weight.toFixed(2)),
+      confidence: Math.min(confidence, 0.95)
+    };
   };
   
   // Handle file input change
@@ -153,7 +251,7 @@ const AddWasteForm = () => {
     }
   };
   
-  // Handle AI analysis (placeholder for future implementation)
+  // Modified analyzeImage function to show presets for demo
   const analyzeImage = async () => {
     if (!imageFile) {
       setError('Please upload an image first');
@@ -164,30 +262,48 @@ const AddWasteForm = () => {
     setError(null);
     
     try {
-      // Simulate AI analysis delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Get base64 of the image (will be needed later for the real analysis)
+      const imageBase64 = await getBase64FromFile(imageFile);
       
-      // This is a placeholder for your future AI implementation
-      // In a real implementation, you would:
-      // 1. Upload the image to your server or AI service
-      // 2. Get back the analysis results
-      // 3. Update the form with those results
+      // For demo purposes, we'll show presets after a brief delay
+      setTimeout(() => {
+        setIsAnalyzing(false);
+        setShowPresets(true);
+      }, 1500);
       
-      setAiAnalysis({
-        message: "AI Analysis feature coming soon! For now, please enter waste details manually.",
-        estimatedWeight: null,
-        detectedWasteType: null,
-        confidence: null
-      });
-      
-      // Move to manual input stage to let user confirm or adjust
-      setCurrentStage(STAGES.MANUAL_INPUT);
     } catch (error) {
       console.error('Error analyzing image:', error);
-      setError('Failed to analyze the image. Please try again or enter details manually.');
-    } finally {
+      setError('Failed to analyze image. Please try again or enter manually.');
       setIsAnalyzing(false);
     }
+  };
+  
+  // Apply preset function
+  const applyPreset = (preset) => {
+    // Get the already uploaded image or use a fallback
+    const imageData = imagePreview || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    
+    // Update AI analysis with preset data
+    setAiAnalysis({
+      message: preset.message,
+      estimatedWeight: preset.weight,
+      detectedWasteType: preset.wasteType,
+      confidence: preset.confidence,
+      base64Image: imageData
+    });
+    
+    // Update form data
+    setFormData(prev => ({
+      ...prev,
+      wasteType: preset.wasteType,
+      weight: preset.weight.toString(),
+      units: 'kg'
+    }));
+    
+    // Close presets panel and continue
+    setShowPresets(false);
+    setSelectedPreset(preset);
+    setCurrentStage(STAGES.MANUAL_INPUT);
   };
   
   // Navigate to next stage
@@ -219,68 +335,64 @@ const AddWasteForm = () => {
   
   // Navigate to previous stage
   const prevStage = () => {
-    if (currentStage === STAGES.IMAGE_UPLOAD || currentStage === STAGES.MANUAL_INPUT) {
+    // If going back from manual input stage where AI analysis was shown
+    if (currentStage === STAGES.MANUAL_INPUT && aiAnalysis) {
+      // Reset form fields that were set by AI analysis
+      setFormData(prev => ({
+        ...prev,
+        wasteType: '',
+        weight: '',
+        units: 'kg'
+      }));
+      
+      // Clear AI analysis results
+      setAiAnalysis(null);
+      
+      // Go back to image upload if we have an image, otherwise to input method
+      if (imageFile) {
+        setCurrentStage(STAGES.IMAGE_UPLOAD);
+      } else {
+        setCurrentStage(STAGES.INPUT_METHOD);
+      }
+    } 
+    else if (currentStage === STAGES.IMAGE_UPLOAD || currentStage === STAGES.MANUAL_INPUT) {
       setCurrentStage(STAGES.INPUT_METHOD);
-    } else {
+    } 
+    else {
       setCurrentStage(prev => prev - 1);
     }
+    
     setError(null);
   };
   
-  // Submit the form
+  // Updated submitForm function to update both real database and mock data
   const submitForm = async () => {
     setIsSubmitting(true);
     setError(null);
     
     try {
-      // Convert weight to number
       const weightValue = parseFloat(formData.weight);
-      
-      // Convert units if needed
       const weightInKg = formData.units === 'g' 
         ? weightValue / 1000 
         : formData.units === 'lb' 
           ? weightValue * 0.453592 
           : weightValue;
       
-      // Prepare data for Supabase
       const logData = {
         userID: formData.userID,
         businessID: formData.businessID,
         wasteType: formData.wasteType,
-        weight: weightInKg, // Always store in kg
+        weight: weightInKg,
         location: formData.location || null,
-        created_at: new Date().toISOString() // Use current time
+        created_at: new Date().toISOString()
       };
       
-      // Add trashImageLink if image was uploaded
-      if (imageFile) {
-        // In a real implementation, you would:
-        // 1. Upload the image to Supabase storage
-        // 2. Get back the URL
-        // 3. Add it to logData
-        
-        // Example (commented out):
-        /*
-        const fileName = `${formData.userID}-${Date.now()}-${imageFile.name}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('waste-images')
-          .upload(fileName, imageFile);
-          
-        if (uploadError) throw uploadError;
-        
-        const imageUrl = supabase.storage
-          .from('waste-images')
-          .getPublicUrl(fileName).data.publicUrl;
-          
-        logData.trashImageLink = imageUrl;
-        */
-        
-        // For now, just add a placeholder
-        logData.trashImageLink = 'image-uploaded-placeholder';
+      // If we have an analyzed image, store the base64 string
+      if (aiAnalysis?.base64Image) {
+        logData.trashImageLink = aiAnalysis.base64Image;
       }
       
-      // Insert data into Wastelogs table
+      // 1. Update real database
       const { data, error: insertError } = await supabase
         .from('Wastelogs')
         .insert([logData])
@@ -288,7 +400,12 @@ const AddWasteForm = () => {
       
       if (insertError) throw insertError;
       
-      // Move to success stage
+      // 2. Update mock data
+      addMockWasteLog({
+        ...logData,
+        username: user?.username || 'Unknown User'
+      });
+      
       setSuccess(true);
       setCurrentStage(STAGES.SUCCESS);
     } catch (error) {
@@ -370,20 +487,38 @@ const AddWasteForm = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
         <div 
           className="bg-white rounded-xl border-2 border-green-500 p-6 cursor-pointer hover:shadow-md transition-all duration-200 flex flex-col items-center text-center"
-          onClick={() => setCurrentStage(STAGES.IMAGE_UPLOAD)}
+          onClick={() => {
+            // Clear form fields and AI analysis when switching to image upload
+            if (aiAnalysis) {
+              setFormData(prev => ({
+                ...prev,
+                wasteType: '',
+                weight: '',
+                units: 'kg'
+              }));
+              setAiAnalysis(null);
+            }
+            setCurrentStage(STAGES.IMAGE_UPLOAD);
+          }}
         >
           <div className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
             <Camera className="h-7 w-7 text-green-600" />
           </div>
           <h3 className="text-lg font-semibold mb-2">Upload Image</h3>
           <p className="text-gray-600 text-sm">
-            Take a photo of your waste and our AI will analyze it to estimate weight and type. (Coming soon)
+            Take a photo of your waste and our AI will analyze it to estimate weight and type.
           </p>
         </div>
         
         <div 
           className="bg-white rounded-xl border-2 border-blue-500 p-6 cursor-pointer hover:shadow-md transition-all duration-200 flex flex-col items-center text-center"
-          onClick={() => setCurrentStage(STAGES.MANUAL_INPUT)}
+          onClick={() => {
+            // Clear AI analysis when going directly to manual input
+            if (aiAnalysis) {
+              setAiAnalysis(null);
+            }
+            setCurrentStage(STAGES.MANUAL_INPUT);
+          }}
         >
           <div className="h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center mb-4">
             <Scale className="h-7 w-7 text-blue-600" />
@@ -397,12 +532,12 @@ const AddWasteForm = () => {
     </div>
   );
   
-  // Stage 2: Image upload and analysis
+  // Updated Stage 2: Image upload and analysis
   const renderImageUploadStage = () => (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Upload Waste Image</h2>
       <p className="text-gray-600">
-        Upload a clear image of your waste for analysis. For best results, ensure the waste is clearly visible with good lighting.
+        Upload a clear image of your waste for analysis. Our system will attempt to identify the waste type and estimate its weight.
       </p>
       
       <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -422,26 +557,29 @@ const AddWasteForm = () => {
               </button>
             </div>
             
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-start">
-                <Info className="h-5 w-5 text-yellow-500 mr-2 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-yellow-700">
-                    <span className="font-semibold">AI Analysis Coming Soon!</span> Our image analysis feature is under development. For now, please proceed to manually enter waste details.
-                  </p>
-                </div>
+            {isAnalyzing ? (
+              <div className="flex justify-center items-center py-4">
+                <Loader className="h-6 w-6 text-green-500 animate-spin mr-2" />
+                <span className="text-gray-600">Analyzing image...</span>
               </div>
-            </div>
-            
-            <div className="flex justify-center">
-              <button
-                onClick={() => setCurrentStage(STAGES.MANUAL_INPUT)}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center"
-              >
-                <ArrowRight className="h-4 w-4 mr-2" />
-                Continue to Manual Entry
-              </button>
-            </div>
+            ) : (
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={analyzeImage}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center"
+                >
+                  <Image className="h-4 w-4 mr-2" />
+                  Analyze Image
+                </button>
+                <button
+                  onClick={() => setCurrentStage(STAGES.MANUAL_INPUT)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center"
+                >
+                  <Scale className="h-4 w-4 mr-2" />
+                  Manual Entry
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center space-y-4">
@@ -476,12 +614,14 @@ const AddWasteForm = () => {
     </div>
   );
   
-  // Stage 3: Manual input
+  // Updated Stage 3: Manual input with AI results
   const renderManualInputStage = () => (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Waste Details</h2>
       <p className="text-gray-600">
-        Please enter the details about the waste you are logging.
+        {aiAnalysis 
+          ? "Please confirm or adjust the waste details below based on our analysis."
+          : "Please enter the details about the waste you are logging."}
       </p>
       
       {aiAnalysis && (
@@ -490,7 +630,11 @@ const AddWasteForm = () => {
             <Info className="h-5 w-5 text-blue-500 mr-2 mt-0.5 flex-shrink-0" />
             <div>
               <p className="text-sm text-blue-700">
-                {aiAnalysis.message}
+                <span className="font-semibold">{aiAnalysis.message}</span>
+                <br />
+                Detected: <span className="font-medium">{aiAnalysis.detectedWasteType}</span> at <span className="font-medium">{aiAnalysis.estimatedWeight}kg</span>
+                <br />
+                Confidence: <span className="font-medium">{(aiAnalysis.confidence * 100).toFixed(0)}%</span>
               </p>
             </div>
           </div>
@@ -615,7 +759,7 @@ const AddWasteForm = () => {
     </div>
   );
   
-  // Stage 5: Confirmation
+  // Updated Stage 5: Confirmation with base64 image
   const renderConfirmationStage = () => (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Confirm Your Entry</h2>
@@ -627,25 +771,20 @@ const AddWasteForm = () => {
         <h3 className="text-lg font-semibold mb-4 pb-2 border-b border-gray-200">Waste Log Summary</h3>
         
         <div className="space-y-4">
-          {/* Two-column layout for details */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              {/* Main details */}
               <div>
                 <p className="text-sm text-gray-500">Waste Type</p>
                 <p className="font-medium">{formData.wasteType}</p>
               </div>
-              
               <div>
                 <p className="text-sm text-gray-500">Weight</p>
                 <p className="font-medium">{formData.weight} {formData.units}</p>
               </div>
-              
               <div>
                 <p className="text-sm text-gray-500">Date</p>
                 <p className="font-medium">{format(new Date(formData.date), 'MMMM d, yyyy')}</p>
               </div>
-              
               {formData.location && (
                 <div>
                   <p className="text-sm text-gray-500">Location</p>
@@ -655,25 +794,25 @@ const AddWasteForm = () => {
             </div>
             
             <div className="space-y-4">
-              {/* User details */}
               <div>
                 <p className="text-sm text-gray-500">Logged By</p>
                 <p className="font-medium">{user?.username || 'Unknown User'}</p>
               </div>
               
-              {/* Image preview if available */}
-              {imagePreview && (
+              {aiAnalysis?.base64Image && (
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Image</p>
                   <img 
-                    src={imagePreview} 
+                    src={aiAnalysis.base64Image} 
                     alt="Waste preview" 
                     className="h-28 rounded-lg border border-gray-200"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    AI Confidence: {(aiAnalysis.confidence * 100).toFixed(0)}%
+                  </p>
                 </div>
               )}
               
-              {/* Notes if available */}
               {formData.notes && (
                 <div>
                   <p className="text-sm text-gray-500">Notes</p>
@@ -811,8 +950,60 @@ const AddWasteForm = () => {
     );
   };
   
+  // New component for preset selection
+  const renderPresetOptions = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 max-w-md w-full m-4">
+        <h3 className="text-xl font-bold mb-4">Select Waste Type</h3>
+        <p className="text-gray-600 mb-6">Our AI has detected waste in your image. Select the appropriate option:</p>
+        
+        <div className="space-y-4">
+          {presets.map(preset => (
+            <div 
+              key={preset.id}
+              onClick={() => applyPreset(preset)}
+              className="border rounded-lg p-4 cursor-pointer hover:bg-green-50 hover:border-green-500 transition-all"
+            >
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="font-medium text-lg">{preset.name}</h4>
+                  <p className="text-sm text-gray-500">{preset.description}</p>
+                </div>
+                <div className="text-right">
+                  <div className="font-bold">{preset.weight} kg</div>
+                  <div className="text-xs text-gray-500">Confidence: {(preset.confidence * 100).toFixed(0)}%</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        <div className="mt-6 flex justify-between">
+          <button
+            onClick={() => setShowPresets(false)}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              setShowPresets(false);
+              setCurrentStage(STAGES.MANUAL_INPUT);
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Manual Entry
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+  
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl">
+      {/* Show preset options if activated */}
+      {showPresets && renderPresetOptions()}
+      
       <div 
         className="bg-gray-50 rounded-2xl shadow-lg overflow-hidden"
         ref={formContainerRef}
@@ -841,13 +1032,13 @@ const AddWasteForm = () => {
       </div>
       
       {/* Back to top button */}
-      <div className="fixed bottom-8 right-8">
+      <div className="fixed top-8 left-8">
         <button
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="bg-green-600 text-white p-3 rounded-full shadow-lg hover:bg-green-700 transition-colors"
-          aria-label="Back to top"
+          onClick={handleBack}
+          className="bg-gray-200 text-gray-700 p-3 rounded-full shadow-lg hover:bg-gray-300 transition-colors flex items-center justify-center"
+          aria-label="Back to dashboard"
         >
-          <ChevronsUp className="h-6 w-6" />
+          <ArrowLeft className="h-6 w-6" />
         </button>
       </div>
     </div>

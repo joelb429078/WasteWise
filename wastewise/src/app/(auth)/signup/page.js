@@ -179,7 +179,7 @@ export default function Signup() {
       }
 
       // Success - redirect to dashboard
-      router.push('/admin/dashboard');
+      router.push('/dashboard');
       
     } catch (error) {
       console.error('Signup error:', error);

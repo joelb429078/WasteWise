@@ -7,9 +7,10 @@ import {
   Users, Shield, Copy, Calendar, Award, Trash2, RefreshCw, 
   ChevronDown, ChevronUp, Search, Edit, Save, X, UserPlus, 
   Trash, Filter, TrendingUp, TrendingDown, CheckCircle, Clock, Clipboard, 
-  ArrowUpRight, User, Mail, Key, BarChart2, Plus
+  ArrowUpRight, User, Mail, Key, BarChart2, Plus, LogOut, ArrowLeft
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useRouter } from "next/navigation";
 
 const EmployeeManagement = () => {
   // State variables
@@ -96,6 +97,28 @@ const EmployeeManagement = () => {
         console.error('Failed to copy: ', err);
       });
   };
+
+  const router = useRouter();
+
+  const handleBack = () => {
+    router.push("/dashboard");
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      // Clear local storage items
+      localStorage.removeItem('userEmail');
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('userId');
+      localStorage.removeItem('isAdmin');
+      // Redirect to login
+      router.push("/login");
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
+  
 
   // Authentication check function
   const checkAuth = async () => {
@@ -587,6 +610,25 @@ const EmployeeManagement = () => {
 
   return (
     <div className="container mx-auto p-4 max-w-6xl bg-gray-50 min-h-screen">
+      <div className="flex justify-between mb-6">
+        <button
+          onClick={handleBack}
+          className="bg-gray-200 text-gray-700 p-3 rounded-full shadow-lg hover:bg-gray-300 transition-colors flex items-center"
+          aria-label="Back to Dashboard"
+        >
+          <ArrowLeft className="h-5 w-5 mr-2" />
+          <span className="font-medium">Back to Dashboard</span>
+        </button>
+        
+        <button
+          onClick={handleLogout}
+          className="bg-red-100 text-red-600 p-3 rounded-full shadow-lg hover:bg-red-200 transition-colors flex items-center"
+          aria-label="Logout"
+        >
+          <span className="font-medium mr-2">Logout</span>
+          <LogOut className="h-5 w-5" />
+        </button>
+      </div>
       {/* Animated Action Bar with Pull Tab - same as in Dashboard */}
       <div className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-500 ease-in-out ${isActionBarVisible ? 'translate-y-0' : 'translate-y-24'}`}>
         {/* Pull Tab */}
