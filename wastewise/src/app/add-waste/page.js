@@ -60,19 +60,19 @@ const AddWasteForm = () => {
       id: 'preset1',
       name: 'Food Waste',
       wasteType: 'Food',
-      weight: 1.2,
+      weight: 0.85,
       confidence: 0.92,
       description: 'Small green UK food waste bin',
-      message: 'Image analyzed: Food waste detected in green food waste bin'
+      message: 'Image analysed: Food waste detected in green food waste bin'
     },
     {
       id: 'preset2',
       name: 'Mixed Waste',
       wasteType: 'Mixed',
-      weight: 6.5,
+      weight: 2.3,
       confidence: 0.78,
       description: 'Red foot operated bin for mixed waste',
-      message: 'Image analyzed: Mixed waste detected, accounting for bin/container weight'
+      message: 'Image analysed: Mixed waste detected, accounting for bin/container weight'
     }
   ];
   
