@@ -4,16 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Trophy, Award, ArrowUpRight, RefreshCw, FileText, Download, ExternalLink } from 'lucide-react';
 
-// Mock data with correct waste per employee values (lower is better)
-const leaderboardData = [
-  { id: 1, company: "EcoCare Consulting", position: 1, wastePerEmployee: "1.8", category: "Consulting" },
-  { id: 2, company: "GreenTech Solutions", position: 2, wastePerEmployee: "3.2", category: "Technology" },
-  { id: 3, company: "Urban Recyclers Ltd", position: 3, wastePerEmployee: "4.1", category: "Recycling" },
-  { id: 4, company: "Sustainable Foods Inc", position: 4, wastePerEmployee: "4.8", category: "Food & Beverage" },
-  { id: 5, company: "Green Planet Logistics", position: 5, wastePerEmployee: "5.3", category: "Logistics" }
-];
-
-// Mock data for reports
+// Mock data for reports (keep this since we're not updating reports section)
 const reportData = [
   { 
     id: 1, 
@@ -49,19 +40,27 @@ const reportData = [
   },
 ];
 
-// Stats with correct interpretation of waste metrics
-const staticStats = {
-  averageWastePerEmployee: 4.2, // kg per employee (lower is better)
-  totalCompanies: 124,
-  co2Avoided: '15.7K',
-  industrySectors: 27
+// Fallback stats (only used if API fails)
+const fallbackStats = {
+  averageWastePerEmployee: 'N/A',
+  totalCompanies: 'N/A',
+  co2Avoided: 'N/A',
+  industrySectors: 'N/A'
 };
+
+// Industry categories to assign (since API doesn't return these)
+const industryCategories = [
+  "Consulting", "Technology", "Recycling", "Food & Beverage", 
+  "Logistics", "Healthcare", "Manufacturing", "Retail",
+  "Education", "Finance", "Construction", "Energy"
+];
 
 export default function PublicInfo() {
   const [activeTab, setActiveTab] = useState('leaderboard');
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState(staticStats);
-  const [dataSource, setDataSource] = useState(leaderboardData);
+  const [error, setError] = useState(false);
+  const [leaderboardData, setLeaderboardData] = useState([]);
+  const [stats, setStats] = useState(fallbackStats);
   const [isFormSubmitting, setIsFormSubmitting] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', request: '' });
   const [formSuccess, setFormSuccess] = useState(false);
@@ -91,87 +90,124 @@ export default function PublicInfo() {
     }, 1500);
   };
   
-  // Try to fetch from API but fallback to static data
   useEffect(() => {
-    const attemptDataFetch = async () => {
+    const fetchPublicLeaderboardData = async () => {
       try {
         setLoading(true);
+        setError(false);
         
-        // Use the same API endpoint as in your other pages
         const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
         
-        // Try to get auth data from localStorage 
-        // (this will only work if the user is logged in on this browser)
-        const token = localStorage.getItem('authToken');
-        const userId = localStorage.getItem('userId');
-        const userEmail = localStorage.getItem('userEmail');
-        
-        // Only attempt API call if we have authentication data
-        if (token && userId && userEmail) {
-          const response = await fetch(`${API_BASE_URL}/api/employee/leaderboard?timeframe=season`, {
+        // Try to fetch from public endpoint first
+        try {
+          const publicResponse = await fetch(`${API_BASE_URL}/api/public/leaderboard`, {
             method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'User-ID': userId,
-              'User-Email': userEmail,
-              'Content-Type': 'application/json'
-            },
-            credentials: 'include'
+            headers: { 'Content-Type': 'application/json' }
           });
           
-          if (response.ok) {
-            const data = await response.json();
-            
-            if (data.status === 'success' && data.data && data.data.length > 0) {
-              // Process the data into the format we need - companies with lower waste per employee are ranked higher
-              const processedData = data.data
-                .sort((a, b) => {
-                  const wastePerEmployeeA = parseFloat(a.wastePerEmployee || a.formattedWastePerEmployee || 1000);
-                  const wastePerEmployeeB = parseFloat(b.wastePerEmployee || b.formattedWastePerEmployee || 1000);
-                  return wastePerEmployeeA - wastePerEmployeeB; // Lower waste is better
-                })
-                .slice(0, 5) // Just take top 5
-                .map((entry, index) => {
-                  // Create a category based on index (since API doesn't provide categories)
-                  const categories = ["Consulting", "Technology", "Recycling", "Food & Beverage", "Logistics"];
-                  
-                  return {
-                    id: entry.businessID || index + 1,
-                    company: entry.companyName || entry.username || `Company ${index + 1}`,
-                    position: index + 1, // Rank based on our sort (1-based)
-                    wastePerEmployee: entry.formattedWastePerEmployee || (entry.wastePerEmployee || 0).toFixed(1),
-                    category: categories[index % categories.length]
-                  };
-                });
-              
-              // Update data if we successfully processed it
-              if (processedData.length > 0) {
-                setDataSource(processedData);
-                
-                // Calculate average waste per employee
-                const avgWaste = data.data.reduce((sum, item) => {
-                  return sum + parseFloat(item.wastePerEmployee || item.formattedWastePerEmployee || 0);
-                }, 0) / data.data.length;
-                
-                // Update the stats with real data
-                setStats({
-                  ...staticStats,
-                  totalCompanies: data.data.length || 124,
-                  averageWastePerEmployee: avgWaste.toFixed(1) || 4.2
-                });
-              }
-            }
+          if (publicResponse.ok) {
+            const publicData = await publicResponse.json();
+            console.log('Fetched public leaderboard data:', publicData);
+            processLeaderboardData(publicData);
+            return;
           }
+        } catch (publicError) {
+          console.log('Public endpoint failed, trying mock data endpoint', publicError);
         }
+        
+        // Fallback to mock data endpoint
+        try {
+          const mockResponse = await fetch(`${API_BASE_URL}/api/mock/leaderboard-preview`);
+          if (mockResponse.ok) {
+            const mockData = await mockResponse.json();
+            console.log('Fetched mock data:', mockData);
+            processLeaderboardData(mockData);
+            return;
+          }
+        } catch (mockError) {
+          console.log('Mock endpoint failed', mockError);
+        }
+        
+        throw new Error('All data sources failed');
       } catch (error) {
-        console.log("Error fetching data, using static data:", error);
-        // Continue with static data (already set)
+        console.error('Error fetching leaderboard data:', error);
+        setError(true);
       } finally {
         setLoading(false);
       }
     };
     
-    attemptDataFetch();
+    const processLeaderboardData = (data) => {
+      if (!data || !data.data) {
+        setError(true);
+        return;
+      }
+      
+      const { companies, stats: backendStats } = data.data;
+      console.log('Raw companies data:', companies);
+      
+      // Filter out companies with zero wastePerEmployee if needed
+      const filteredCompanies = companies.filter(company => {
+        const wastePerEmployee = parseFloat(company.wastePerEmployee || 0);
+        return wastePerEmployee > 0;
+      });
+      
+      // Sort companies by waste per employee (ascending - lower is better)
+      const sortedCompanies = [...filteredCompanies].sort((a, b) => {
+        const wasteA = parseFloat(a.wastePerEmployee || 0);
+        const wasteB = parseFloat(b.wastePerEmployee || 0);
+        return wasteA - wasteB;
+      });
+      
+      // Map to leaderboard data structure and assign random industry categories
+      const processedData = sortedCompanies.map((company, index) => {
+        // Assign a random industry category
+        const categoryIndex = (company.businessID % industryCategories.length) || index % industryCategories.length;
+        
+        return {
+          id: company.businessID || index + 1,
+          company: company.companyName || 'Unknown Company',
+          position: index + 1,
+          wastePerEmployee: parseFloat(company.wastePerEmployee).toFixed(2),
+          category: industryCategories[categoryIndex]
+        };
+      });
+      
+      console.log('Processed leaderboard data:', processedData);
+      setLeaderboardData(processedData);
+      
+      // Calculate derived stats
+      const avgWastePerEmployee = backendStats?.averageWastePerEmployee || 0;
+      const totalCompanies = backendStats?.totalCompanies || 0;
+      
+      // Calculate a rough estimate of CO2 avoided using the formula:
+      // Total companies × Average waste reduction (estimated at 500kg) × CO2 factor (2.5)
+      const co2Factor = 2.5;
+      const estimatedWasteReduction = 500; // kg per company
+      const estimatedCO2Avoided = totalCompanies * estimatedWasteReduction * co2Factor;
+      
+      // Format the CO2 number to be user-friendly
+      let formattedCO2;
+      if (estimatedCO2Avoided > 1000000) {
+        formattedCO2 = (estimatedCO2Avoided / 1000000).toFixed(1) + 'M';
+      } else if (estimatedCO2Avoided > 1000) {
+        formattedCO2 = (estimatedCO2Avoided / 1000).toFixed(1) + 'K';
+      } else {
+        formattedCO2 = estimatedCO2Avoided.toFixed(0);
+      }
+      
+      // Count unique industry sectors
+      const uniqueCategories = new Set(processedData.map(item => item.category));
+      
+      setStats({
+        averageWastePerEmployee: parseFloat(avgWastePerEmployee).toFixed(2) || 'N/A',
+        totalCompanies: totalCompanies || 'N/A',
+        co2Avoided: formattedCO2 || 'N/A',
+        industrySectors: uniqueCategories.size || 'N/A'
+      });
+    };
+    
+    fetchPublicLeaderboardData();
   }, []);
   
   return (
@@ -325,6 +361,14 @@ export default function PublicInfo() {
                         <RefreshCw className="animate-spin h-10 w-10 text-green-500 mx-auto mb-4" />
                         <p className="text-gray-500">Loading leaderboard data...</p>
                       </div>
+                    ) : error ? (
+                      <div className="bg-white px-6 py-12 text-center">
+                        <p className="text-gray-500">Unable to load leaderboard data</p>
+                      </div>
+                    ) : leaderboardData.length === 0 ? (
+                      <div className="bg-white px-6 py-12 text-center">
+                        <p className="text-gray-500">No companies with waste logs yet</p>
+                      </div>
                     ) : (
                       <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
@@ -344,7 +388,7 @@ export default function PublicInfo() {
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                          {dataSource.map((company) => (
+                          {leaderboardData.map((company) => (
                             <tr 
                               key={company.id} 
                               className={`${company.position <= 3 ? "bg-green-50" : ""} transition-colors hover:bg-gray-50`}
@@ -386,7 +430,7 @@ export default function PublicInfo() {
               </div>
               <div className="border-t border-gray-200 px-4 py-5 sm:p-6">
                 <p className="text-gray-600 mb-4">
-                  Our sustainability leaderboard recognizes companies that are making significant strides in waste reduction and environmental responsibility. Rankings are determined based on:
+                  Our sustainability leaderboard recognises companies that are making significant strides in waste reduction and environmental responsibility. Rankings are determined based on:
                 </p>
                 <ul className="list-disc pl-5 space-y-2 text-gray-600">
                   <li>Waste generated per employee (lower is better)</li>

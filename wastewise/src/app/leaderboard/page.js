@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { 
   Trophy, Medal, Award, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, 
   RefreshCw, Search, BarChart2, Globe, Users, Building, ChevronDown, ChevronUp,
-  ArrowUpRight, FileSpreadsheet, Printer, Plus, Trash, LogOut, TrendingDown
+  ArrowUpRight, FileSpreadsheet, Printer, Plus, Trash, LogOut, TrendingDown, AlertTriangle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import dynamic from 'next/dynamic';
@@ -19,7 +19,6 @@ const LeafletMap = dynamic(() => import('../../components/LeafletMap/LeafletMap'
     </div>
   )
 });
-import { getMockLeaderboardData } from '../../components/data/mockData';
 
 const LeaderboardPage = () => {
   const [leaderboardData, setLeaderboardData] = useState([]);
@@ -45,6 +44,7 @@ const LeaderboardPage = () => {
 
   const router = useRouter();
   const leaderboardTopRef = useRef(null);
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
   useEffect(() => {
     checkAuthAndFetchData();
@@ -67,26 +67,93 @@ const LeaderboardPage = () => {
     }
   }, [currentPage]);
 
+  // Helper function to get auth headers from localStorage
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('authToken');
+    const userId = localStorage.getItem('userId');
+    const userEmail = localStorage.getItem('userEmail');
+    
+    if (!token || !userId || !userEmail) {
+      console.error("Missing authentication data");
+      return null;
+    }
+    
+    return {
+      'Authorization': `Bearer ${token}`,
+      'User-ID': userId,
+      'User-Email': userEmail,
+      'Content-Type': 'application/json'
+    };
+  };
+
   const checkAuthAndFetchData = async () => {
     try {
       setLoading(true);
       setError(null);
 
+      // Check authentication with Supabase
       const { data: { session } } = await supabase.auth.getSession();
+      
       if (!session) {
-        setError('You must be logged in to access this page');
-        setTimeout(() => router.push('/login'), 2000);
-        return;
+        const tokenFromLocalStorage = localStorage.getItem('authToken');
+        
+        // If we have a token in localStorage but no Supabase session, try using that
+        if (tokenFromLocalStorage) {
+          console.log('No Supabase session, but token found in localStorage. Proceeding with caution.');
+        } else {
+          setError('You must be logged in to access this page');
+          setTimeout(() => router.push('/login'), 2000);
+          setLoading(false);
+          return;
+        }
       }
 
-      const { data: userData, error: userError } = await supabase
-        .from('Users')
-        .select('*')
-        .eq('email', session.user.email)
-        .single();
-
-      if (userError || !userData) {
-        throw new Error('Could not fetch user data');
+      // Try to get user data from Supabase first
+      let userData = null;
+      const userEmail = session?.user?.email || localStorage.getItem('userEmail');
+      
+      if (userEmail) {
+        const { data: userDataFromSupabase, error: userError } = await supabase
+          .from('Users')
+          .select('*')
+          .eq('email', userEmail)
+          .single();
+        
+        if (userDataFromSupabase && !userError) {
+          userData = userDataFromSupabase;
+        } else {
+          console.error('Error fetching user data from Supabase:', userError);
+        }
+      }
+      
+      // If Supabase doesn't work, try the API
+      if (!userData) {
+        try {
+          const headers = getAuthHeaders();
+          if (headers) {
+            const response = await fetch(`${API_BASE_URL}/api/employee/profile`, {
+              method: 'GET',
+              headers,
+              credentials: 'include'
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.status === 'success' && data.data) {
+                userData = data.data;
+              }
+            }
+          }
+        } catch (apiError) {
+          console.error('Error fetching user data from API:', apiError);
+        }
+      }
+      
+      // If we still don't have user data, show error
+      if (!userData) {
+        setError('Could not fetch user data');
+        setLoading(false);
+        return;
       }
 
       setCurrentUser(userData);
@@ -113,217 +180,461 @@ const LeaderboardPage = () => {
     try {
       setLoading(true);
       setError(null);
-  
-      // Get mock data instead of using API
-      const leaderboardData = getMockLeaderboardData();
       
-      // Set the leaderboard data
-      setLeaderboardData(leaderboardData);
-      
-      // Generate map points
-      const mapData = leaderboardData.map(business => ({
-        id: business.businessID,
-        name: business.companyName,
-        rank: business.rank,
-        waste: business.formattedWaste,
-        wastePerEmployee: business.formattedWastePerEmployee,
-        popupContent: `
-          <div class="font-sans">
-            <div class="font-bold">${business.companyName}</div>
-            <div>Rank: #${business.rank}</div>
-            <div>Total Waste: ${business.formattedWaste} kg</div>
-            <div>Waste/Employee: ${business.formattedWastePerEmployee} kg</div>
-          </div>
-        `,
-      }));
-      setMapPoints(mapData);
-      
-      // Calculate stats based on the mock data
-      calculateStats(leaderboardData);
-      
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching leaderboard data:", error);
-      setError("Failed to fetch leaderboard data");
-      setLoading(false);
-    }
-  };
-
-
-  const fetchLeaderboardDataOLD = async (user) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const now = new Date();
-      const getFirstDayOfWeek = (date) => {
-        const day = date.getDay();
-        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-        return new Date(date.setDate(diff)).setHours(0, 0, 0, 0);
-      };
-      const getFirstDayOfQuarter = (date) => {
-        const quarter = Math.floor(date.getMonth() / 3);
-        return new Date(date.getFullYear(), quarter * 3, 1).setHours(0, 0, 0, 0);
-      };
-      const getSeasonStart = (date) => {
-        const month = date.getMonth();
-        if (month >= 2 && month < 5) return new Date(date.getFullYear(), 2, 1).setHours(0, 0, 0, 0);
-        if (month >= 5 && month < 8) return new Date(date.getFullYear(), 5, 1).setHours(0, 0, 0, 0);
-        if (month >= 8 && month < 11) return new Date(date.getFullYear(), 8, 1).setHours(0, 0, 0, 0);
-        if (month >= 11) return new Date(date.getFullYear(), 11, 1).setHours(0, 0, 0, 0);
-        return new Date(date.getFullYear() - 1, 11, 1).setHours(0, 0, 0, 0);
-      };
-
-      const timeframeStart = {
-        'week': getFirstDayOfWeek(new Date(now)),
-        'month': new Date(now.getFullYear(), now.getMonth(), 1).setHours(0, 0, 0, 0),
-        'quarter': getFirstDayOfQuarter(new Date(now)),
-        'season': getSeasonStart(new Date(now)),
-        'year': new Date(now.getFullYear(), 0, 1).setHours(0, 0, 0, 0),
-        'all': new Date(0).setHours(0, 0, 0, 0),
-      };
-
-      const previousTimeframeStart = {
-        'week': new Date(getFirstDayOfWeek(new Date(now)) - 7 * 24 * 60 * 60 * 1000),
-        'month': new Date(now.getFullYear(), now.getMonth() - 1, 1).setHours(0, 0, 0, 0),
-        'quarter': new Date(getFirstDayOfQuarter(new Date(now))).setMonth(new Date(getFirstDayOfQuarter(new Date(now))).getMonth() - 3),
-        'season': new Date(getSeasonStart(new Date(now))).setMonth(new Date(getSeasonStart(new Date(now))).getMonth() - 3),
-        'year': new Date(now.getFullYear() - 1, 0, 1).setHours(0, 0, 0, 0),
-        'all': new Date(0).setHours(0, 0, 0, 0),
-      };
-
-      const currentStart = new Date(timeframeStart[selectedTimeframe]);
-      const previousStart = new Date(previousTimeframeStart[selectedTimeframe]);
-      const previousEnd = new Date(currentStart);
-
-      console.log(`Current timeframe: ${format(currentStart, 'yyyy-MM-dd')} to ${format(now, 'yyyy-MM-dd')}`);
-      console.log(`Previous timeframe: ${format(previousStart, 'yyyy-MM-dd')} to ${format(previousEnd, 'yyyy-MM-dd')}`);
-
-      const { data: wasteLogsData, error: wasteLogsError } = await supabase
-        .from('Wastelogs')
-        .select('logID, created_at, businessID, weight')
-        .gte('created_at', previousStart.toISOString())
-        .lte('created_at', now.toISOString());
-
-      if (wasteLogsError) throw new Error('Failed to fetch waste logs: ' + wasteLogsError.message);
-
-      const { data: businessesData, error: businessesError } = await supabase
-        .from('Businesses')
-        .select('businessID, companyName');
-
-      if (businessesError) throw new Error('Failed to fetch business data: ' + businessesError.message);
-
-      const businessNameMap = businessesData.reduce((acc, business) => {
-        acc[business.businessID] = business.companyName;
-        return acc;
-      }, {});
-
-      const { data: usersData, error: usersError } = await supabase
-        .from('Users')
-        .select('businessID');
-
-      if (usersError) throw new Error('Failed to fetch user data: ' + usersError.message);
-
-      const employeeCount = usersData.reduce((acc, user) => {
-        acc[user.businessID] = (acc[user.businessID] || 0) + 1;
-        return acc;
-      }, {});
-
-      const currentLogs = wasteLogsData.filter(log => new Date(log.created_at) >= currentStart);
-      const previousLogs = wasteLogsData.filter(log => new Date(log.created_at) >= previousStart && new Date(log.created_at) < previousEnd);
-
-      console.log(`Current logs: ${currentLogs.length}, Previous logs: ${previousLogs.length}`);
-
-      const aggregateWaste = (logs) => {
-        return logs.reduce((acc, log) => {
-          if (!acc[log.businessID]) {
-            acc[log.businessID] = {
-              businessID: log.businessID,
-              companyName: businessNameMap[log.businessID] || `Business ${log.businessID}`,
-              totalWaste: 0,
-            };
+      // Try the public API endpoint first - should give all companies
+      try {
+        console.log('Fetching full leaderboard data from public API...');
+        const response = await fetch(`${API_BASE_URL}/api/public/leaderboard`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Public API response:', data);
+          
+          if (data.status === 'success' && data.data && data.data.companies) {
+            await processLeaderboardData(data.data, user);
+            return;
           }
-          acc[log.businessID].totalWaste += parseFloat(log.weight || 0);
-          return acc;
-        }, {});
-      };
-
-      const currentWasteByBusiness = aggregateWaste(currentLogs);
-      const previousWasteByBusiness = aggregateWaste(previousLogs);
-
-      let currentRankedData = Object.values(currentWasteByBusiness).map(business => {
-        const employees = employeeCount[business.businessID] || 1;
-        return {
-          businessID: business.businessID,
-          companyName: business.companyName,
-          seasonalWaste: business.totalWaste,
-          wastePerEmployee: business.totalWaste / employees,
-          formattedWaste: business.totalWaste.toFixed(1),
-          formattedWastePerEmployee: (business.totalWaste / employees).toFixed(1),
-        };
-      });
-
-      currentRankedData.sort((a, b) => a.wastePerEmployee - b.wastePerEmployee);
-      currentRankedData = currentRankedData.map((business, index) => ({
-        ...business,
-        rank: index + 1,
-      }));
-
-      let previousRankedData = Object.values(previousWasteByBusiness).map(business => {
-        const employees = employeeCount[business.businessID] || 1;
-        return {
-          businessID: business.businessID,
-          wastePerEmployee: business.totalWaste / employees,
-        };
-      });
-
-      previousRankedData.sort((a, b) => a.wastePerEmployee - b.wastePerEmployee);
-      const previousRanks = previousRankedData.reduce((acc, business, index) => {
-        acc[business.businessID] = index + 1;
-        return acc;
-      }, {});
-
-      console.log("Previous ranks:", previousRanks);
-
-      const finalData = currentRankedData.map(business => {
-        const previousRank = previousRanks[business.businessID];
-        const rankChange = previousRank ? previousRank - business.rank : '-';
-        return {
-          ...business,
-          previousRank,
-          rankChange,
-          rankChangeIcon: rankChange === '-' ? '–' : rankChange > 0 ? <ArrowUp className="h-4 w-4" /> : rankChange < 0 ? <ArrowDown className="h-4 w-4" /> : '–',
-          rankChangeClass: rankChange === '-' ? 'text-gray-500' : rankChange > 0 ? 'text-green-600' : rankChange < 0 ? 'text-red-600' : 'text-gray-500',
-          username: business.companyName,
-        };
-      });
-
-      console.log("Final leaderboard data:", finalData);
-      setLeaderboardData(finalData);
-
-      const mapData = finalData.map(business => ({
-        id: business.businessID,
-        name: business.companyName,
-        rank: business.rank,
-        waste: business.formattedWaste,
-        wastePerEmployee: business.formattedWastePerEmployee,
-        popupContent: `
-          <div class="font-sans">
-            <div class="font-bold">${business.companyName}</div>
-            <div>Rank: #${business.rank}</div>
-            <div>Total Waste: ${business.formattedWaste} kg</div>
-            <div>Waste/Employee: ${business.formattedWastePerEmployee} kg</div>
-          </div>
-        `,
-      }));
-      setMapPoints(mapData);
-
-      calculateStats(finalData);
+        }
+      } catch (publicApiError) {
+        console.error('Error fetching from public API:', publicApiError);
+      }
+      
+      // If public API fails, try the authenticated API endpoint
+      try {
+        console.log('Trying authenticated leaderboard API...');
+        const headers = getAuthHeaders();
+        if (headers) {
+          const response = await fetch(`${API_BASE_URL}/api/leaderboard/leaderboard?timeframe=${selectedTimeframe}`, {
+            method: 'GET',
+            headers,
+            credentials: 'include'
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Authenticated API response:', data);
+            
+            if (data.status === 'success' && data.data) {
+              await processAuthenticatedLeaderboardData(data.data, user);
+              return;
+            }
+          }
+        }
+      } catch (apiError) {
+        console.error('Error fetching from authenticated API:', apiError);
+      }
+      
+      // If all API endpoints fail, fallback to direct Supabase queries
+      console.log('API requests failed. Falling back to direct Supabase queries...');
+      await fetchLeaderboardFromSupabase(user);
+      
     } catch (error) {
       console.error("Error fetching leaderboard data:", error);
       setError("Failed to fetch leaderboard data");
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Process data from public API endpoint
+  const processLeaderboardData = async (data, currentUser) => {
+    const { companies, stats } = data;
+    
+    console.log(`Processing ${companies.length} companies from public API`);
+    
+    // Sort by waste per employee (ascending - lower is better)
+    const sortedCompanies = [...companies].sort((a, b) => 
+      parseFloat(a.wastePerEmployee || 0) - parseFloat(b.wastePerEmployee || 0)
+    );
+    
+    // Get all business IDs to fetch their locations
+    const businessIds = sortedCompanies.map(company => company.businessID).filter(Boolean);
+    
+    // Fetch business locations from Supabase
+    let businessLocations = {};
+    try {
+      if (businessIds.length > 0) {
+        const { data: locations, error } = await supabase
+          .from('Businesses')
+          .select('businessID, location')
+          .in('businessID', businessIds);
+        
+        if (!error && locations) {
+          businessLocations = locations.reduce((acc, business) => {
+            if (business.location) {
+              acc[business.businessID] = business.location;
+            }
+            return acc;
+          }, {});
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching business locations:', error);
+    }
+    
+    // Process for display with ranks
+    const processedData = sortedCompanies.map((company, index) => {
+      // Calculate rank change (using the value from the API or default to 0)
+      const rankChange = company.rankChange || 0;
+      
+      // Position (lower waste per employee is better)
+      const position = index + 1;
+      
+      return {
+        businessID: company.businessID,
+        companyName: company.companyName || 'Unknown Company',
+        rank: position,
+        wastePerEmployee: parseFloat(company.wastePerEmployee || 0),
+        formattedWastePerEmployee: parseFloat(company.wastePerEmployee || 0).toFixed(1),
+        seasonalWaste: parseFloat(company.totalWaste || 0),
+        formattedWaste: parseFloat(company.totalWaste || 0).toFixed(1),
+        rankChange: rankChange,
+        rankChangeIcon: rankChange === 0 ? '–' : 
+                        rankChange > 0 ? <ArrowUp className="h-4 w-4" /> : 
+                        <ArrowDown className="h-4 w-4" />,
+        rankChangeClass: rankChange === 0 ? 'text-gray-500' : 
+                         rankChange > 0 ? 'text-green-600' : 
+                         'text-red-600',
+        location: businessLocations[company.businessID] || null
+      };
+    });
+    
+    console.log('Processed leaderboard data:', processedData);
+    setLeaderboardData(processedData);
+    
+    // Generate map points with real coordinates where available
+    const mapData = processedData.map(business => {
+      let position = null;
+      let locationSource = 'default';
+      
+      // Check if business has real coordinates
+      if (business.location) {
+        try {
+          const coords = JSON.parse(business.location);
+          if (Array.isArray(coords) && coords.length === 2) {
+            position = coords;
+            locationSource = 'database';
+          }
+        } catch (e) {
+          console.error(`Error parsing location for business ${business.businessID}:`, e);
+        }
+      }
+      
+      // If no valid coordinates, use a default UK location based on rank
+      if (!position) {
+        // Use a default UK location (London)
+        position = [51.5074, -0.1278];
+      }
+      
+      return {
+        id: business.businessID,
+        name: business.companyName,
+        rank: business.rank,
+        waste: business.formattedWaste,
+        wastePerEmployee: business.formattedWastePerEmployee,
+        position: position,
+        locationSource: locationSource,
+        popupContent: `
+          <div class="font-sans">
+            <div class="font-bold">${business.companyName}</div>
+            <div>Rank: #${business.rank}</div>
+            <div>Total Waste: ${business.formattedWaste} kg</div>
+            <div>Waste/Employee: ${business.formattedWastePerEmployee} kg</div>
+          </div>
+        `,
+      };
+    });
+    
+    setMapPoints(mapData);
+    
+    // Update stats
+    setStats({
+      totalCompanies: processedData.length,
+      averageWaste: stats.averageWastePerEmployee || '0.0',
+      topPerformer: processedData[0]?.companyName || 'N/A',
+      mostImproved: processedData
+        .filter(d => d.rankChange > 0)
+        .sort((a, b) => b.rankChange - a.rankChange)[0]?.companyName || 'N/A'
+    });
+  };
+  
+  // Process data from authenticated API endpoint
+  const processAuthenticatedLeaderboardData = async (data, currentUser) => {
+    console.log(`Processing ${data.length} companies from authenticated API`);
+    
+    // Get all business IDs to fetch their locations
+    const businessIds = data.map(company => company.businessID).filter(Boolean);
+    
+    // Fetch business locations from Supabase
+    let businessLocations = {};
+    try {
+      if (businessIds.length > 0) {
+        const { data: locations, error } = await supabase
+          .from('Businesses')
+          .select('businessID, location')
+          .in('businessID', businessIds);
+        
+        if (!error && locations) {
+          businessLocations = locations.reduce((acc, business) => {
+            if (business.location) {
+              acc[business.businessID] = business.location;
+            }
+            return acc;
+          }, {});
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching business locations:', error);
+    }
+    
+    // Process the data
+    const processedData = data.map(company => {
+      // Get rank change
+      const rankChange = typeof company.rankChange === 'number' ? company.rankChange : 0;
+      
+      return {
+        businessID: company.businessID,
+        companyName: company.username || company.companyName || 'Unknown Company',
+        rank: company.rank || 0,
+        wastePerEmployee: parseFloat(company.wastePerEmployee || company.formattedWastePerEmployee || 0),
+        formattedWastePerEmployee: parseFloat(company.formattedWastePerEmployee || company.wastePerEmployee || 0).toFixed(1),
+        seasonalWaste: parseFloat(company.seasonalWaste || 0),
+        formattedWaste: parseFloat(company.seasonalWaste || 0).toFixed(1),
+        rankChange: rankChange,
+        rankChangeIcon: rankChange === 0 ? '–' : 
+                        rankChange > 0 ? <ArrowUp className="h-4 w-4" /> : 
+                        <ArrowDown className="h-4 w-4" />,
+        rankChangeClass: rankChange === 0 ? 'text-gray-500' : 
+                         rankChange > 0 ? 'text-green-600' : 
+                         'text-red-600',
+        location: businessLocations[company.businessID] || null
+      };
+    });
+    
+    setLeaderboardData(processedData);
+    
+    // Generate map points with real coordinates where available
+    const mapData = processedData.map(business => {
+      let position = null;
+      let locationSource = 'default';
+      
+      // Check if business has real coordinates
+      if (business.location) {
+        try {
+          const coords = JSON.parse(business.location);
+          if (Array.isArray(coords) && coords.length === 2) {
+            position = coords;
+            locationSource = 'database';
+          }
+        } catch (e) {
+          console.error(`Error parsing location for business ${business.businessID}:`, e);
+        }
+      }
+      
+      // If no valid coordinates, use a default UK location based on rank
+      if (!position) {
+        // Use a default UK location (London)
+        position = [51.5074, -0.1278];
+      }
+      
+      return {
+        id: business.businessID,
+        name: business.companyName,
+        rank: business.rank,
+        waste: business.formattedWaste,
+        wastePerEmployee: business.formattedWastePerEmployee,
+        position: position,
+        locationSource: locationSource,
+        popupContent: `
+          <div class="font-sans">
+            <div class="font-bold">${business.companyName}</div>
+            <div>Rank: #${business.rank}</div>
+            <div>Total Waste: ${business.formattedWaste} kg</div>
+            <div>Waste/Employee: ${business.formattedWastePerEmployee} kg</div>
+          </div>
+        `,
+      };
+    });
+    
+    setMapPoints(mapData);
+    
+    // Calculate stats
+    const avgWastePerEmployee = (processedData.reduce((sum, company) => sum + parseFloat(company.wastePerEmployee || 0), 0) / processedData.length).toFixed(1);
+    const topPerformer = processedData.sort((a, b) => a.wastePerEmployee - b.wastePerEmployee)[0]?.companyName || 'N/A';
+    const mostImproved = processedData
+      .filter(d => d.rankChange > 0)
+      .sort((a, b) => b.rankChange - a.rankChange)[0]?.companyName || 'N/A';
+    
+    setStats({
+      totalCompanies: processedData.length,
+      averageWaste: avgWastePerEmployee,
+      topPerformer: topPerformer,
+      mostImproved: mostImproved
+    });
+  };
+
+  // Fallback to fetch leaderboard from Supabase
+  const fetchLeaderboardFromSupabase = async (user) => {
+    try {
+      console.log('Fetching leaderboard directly from Supabase');
+      
+      // 1. Get all businesses
+      const { data: businesses, error: businessError } = await supabase
+        .from('Businesses')
+        .select('businessID, companyName, location');
+      
+      if (businessError) {
+        throw new Error(`Failed to fetch businesses: ${businessError.message}`);
+      }
+      
+      // 2. Get employee counts per business
+      const { data: users, error: userError } = await supabase
+        .from('Users')
+        .select('businessID');
+      
+      if (userError) {
+        throw new Error(`Failed to fetch users: ${userError.message}`);
+      }
+      
+      // Count employees per business
+      const employeeCounts = {};
+      users.forEach(user => {
+        const businessID = user.businessID;
+        employeeCounts[businessID] = (employeeCounts[businessID] || 0) + 1;
+      });
+      
+      // 3. Get waste logs to calculate waste per business
+      const { data: wasteLogs, error: wasteError } = await supabase
+        .from('Wastelogs')
+        .select('businessID, weight');
+      
+      if (wasteError) {
+        throw new Error(`Failed to fetch waste logs: ${wasteError.message}`);
+      }
+      
+      // Calculate total waste per business
+      const wastePerBusiness = {};
+      wasteLogs.forEach(log => {
+        const businessID = log.businessID;
+        const weight = parseFloat(log.weight || 0);
+        wastePerBusiness[businessID] = (wastePerBusiness[businessID] || 0) + weight;
+      });
+      
+      // Create leaderboard entries
+      const leaderboardEntries = [];
+      businesses.forEach(business => {
+        const businessID = business.businessID;
+        const employeeCount = employeeCounts[businessID] || 1; // Default to 1 to avoid division by zero
+        const totalWaste = wastePerBusiness[businessID] || 0;
+        
+        if (totalWaste > 0) { // Only include businesses with waste data
+          const wastePerEmployee = totalWaste / employeeCount;
+          
+          leaderboardEntries.push({
+            businessID: businessID,
+            companyName: business.companyName || 'Unknown Company',
+            employeeCount: employeeCount,
+            totalWaste: totalWaste,
+            wastePerEmployee: wastePerEmployee,
+            location: business.location
+          });
+        }
+      });
+      
+      // Sort by waste per employee (ascending - lower is better)
+      leaderboardEntries.sort((a, b) => a.wastePerEmployee - b.wastePerEmployee);
+      
+      // Process for display with ranks
+      const processedData = leaderboardEntries.map((entry, index) => {
+        return {
+          businessID: entry.businessID,
+          companyName: entry.companyName,
+          rank: index + 1,
+          wastePerEmployee: entry.wastePerEmployee,
+          formattedWastePerEmployee: entry.wastePerEmployee.toFixed(1),
+          seasonalWaste: entry.totalWaste,
+          formattedWaste: entry.totalWaste.toFixed(1),
+          rankChange: 0, // No historical data for rank change
+          rankChangeIcon: <RefreshCw className="h-4 w-4" />,
+          rankChangeClass: 'text-gray-500',
+          location: entry.location
+        };
+      });
+      
+      console.log(`Processed ${processedData.length} entries from Supabase`);
+      setLeaderboardData(processedData);
+      
+      // Generate map points with real coordinates where available
+      const mapData = processedData.map(business => {
+        let position = null;
+        let locationSource = 'default';
+        
+        // Check if business has real coordinates
+        if (business.location) {
+          try {
+            const coords = JSON.parse(business.location);
+            if (Array.isArray(coords) && coords.length === 2) {
+              position = coords;
+              locationSource = 'database';
+            }
+          } catch (e) {
+            console.error(`Error parsing location for business ${business.businessID}:`, e);
+          }
+        }
+        
+        // If no valid coordinates, use a default UK location based on rank
+        if (!position) {
+          // Use a default UK location (London)
+          position = [51.5074, -0.1278];
+        }
+        
+        return {
+          id: business.businessID,
+          name: business.companyName,
+          rank: business.rank,
+          waste: business.formattedWaste,
+          wastePerEmployee: business.formattedWastePerEmployee,
+          position: position,
+          locationSource: locationSource,
+          popupContent: `
+            <div class="font-sans">
+              <div class="font-bold">${business.companyName}</div>
+              <div>Rank: #${business.rank}</div>
+              <div>Total Waste: ${business.formattedWaste} kg</div>
+              <div>Waste/Employee: ${business.formattedWastePerEmployee} kg</div>
+            </div>
+          `,
+        };
+      });
+      
+      setMapPoints(mapData);
+      
+      // Calculate stats
+      const avgWastePerEmployee = (processedData.reduce((sum, company) => sum + company.wastePerEmployee, 0) / processedData.length).toFixed(1);
+      
+      setStats({
+        totalCompanies: processedData.length,
+        averageWaste: avgWastePerEmployee,
+        topPerformer: processedData[0]?.companyName || 'N/A',
+        mostImproved: 'N/A' // No historical data for improvement
+      });
+      
+    } catch (error) {
+      console.error("Error fetching from Supabase:", error);
+      setError("Could not fetch leaderboard data. Please try again later.");
+      
+      // Set some default empty states
+      setLeaderboardData([]);
+      setMapPoints([]);
+      setStats({
+        totalCompanies: 0,
+        averageWaste: 0,
+        topPerformer: 'N/A',
+        mostImproved: 'N/A'
+      });
     }
   };
 
@@ -334,32 +645,62 @@ const LeaderboardPage = () => {
     }
 
     const totalCompanies = data.length;
-    const avgWastePerEmployee = (data.reduce((sum, company) => sum + company.wastePerEmployee, 0) / totalCompanies).toFixed(1);
-    const topPerformer = data[0].companyName;
+    const avgWastePerEmployee = (data.reduce((sum, company) => sum + parseFloat(company.wastePerEmployee || 0), 0) / totalCompanies).toFixed(1);
+    const topPerformer = data[0]?.companyName || 'N/A';
     const mostImproved = data
-      .filter(d => d.rankChange !== '-')
+      .filter(d => d.rankChange !== '-' && d.rankChange > 0)
       .sort((a, b) => (b.rankChange || 0) - (a.rankChange || 0))[0]?.companyName || 'N/A';
 
     setStats({ totalCompanies, averageWaste: avgWastePerEmployee, topPerformer, mostImproved });
   };
 
   const applyFilters = () => {
-    if (!leaderboardData || leaderboardData.length === 0) return;
+    if (!leaderboardData || leaderboardData.length === 0) {
+      setFilteredData([]);
+      return;
+    }
 
     let filtered = [...leaderboardData];
     if (searchTerm.trim()) {
-      filtered = filtered.filter(company => company.companyName?.toLowerCase().includes(searchTerm.toLowerCase()));
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(company => 
+        company.companyName?.toLowerCase().includes(term)
+      );
     }
 
     switch (sortBy) {
-      case 'wastePerEmployee-asc': filtered.sort((a, b) => a.wastePerEmployee - b.wastePerEmployee); break;
-      case 'wastePerEmployee-desc': filtered.sort((a, b) => b.wastePerEmployee - a.wastePerEmployee); break;
-      case 'waste-asc': filtered.sort((a, b) => a.seasonalWaste - b.seasonalWaste); break;
-      case 'waste-desc': filtered.sort((a, b) => b.seasonalWaste - a.seasonalWaste); break;
-      case 'rank-asc': filtered.sort((a, b) => a.rank - b.rank); break;
-      case 'rank-desc': filtered.sort((a, b) => b.rank - a.rank); break;
-      case 'change-desc': filtered.sort((a, b) => (b.rankChange === '-' ? -Infinity : b.rankChange) - (a.rankChange === '-' ? -Infinity : a.rankChange)); break;
-      case 'change-asc': filtered.sort((a, b) => (a.rankChange === '-' ? Infinity : a.rankChange) - (b.rankChange === '-' ? Infinity : b.rankChange)); break;
+      case 'wastePerEmployee-asc': 
+        filtered.sort((a, b) => parseFloat(a.wastePerEmployee || 0) - parseFloat(b.wastePerEmployee || 0)); 
+        break;
+      case 'wastePerEmployee-desc': 
+        filtered.sort((a, b) => parseFloat(b.wastePerEmployee || 0) - parseFloat(a.wastePerEmployee || 0)); 
+        break;
+      case 'waste-asc': 
+        filtered.sort((a, b) => parseFloat(a.seasonalWaste || 0) - parseFloat(b.seasonalWaste || 0)); 
+        break;
+      case 'waste-desc': 
+        filtered.sort((a, b) => parseFloat(b.seasonalWaste || 0) - parseFloat(a.seasonalWaste || 0)); 
+        break;
+      case 'rank-asc': 
+        filtered.sort((a, b) => a.rank - b.rank); 
+        break;
+      case 'rank-desc': 
+        filtered.sort((a, b) => b.rank - a.rank); 
+        break;
+      case 'change-desc': 
+        filtered.sort((a, b) => {
+          const aChange = a.rankChange === '-' ? -Infinity : a.rankChange || 0;
+          const bChange = b.rankChange === '-' ? -Infinity : b.rankChange || 0;
+          return bChange - aChange;
+        });
+        break;
+      case 'change-asc': 
+        filtered.sort((a, b) => {
+          const aChange = a.rankChange === '-' ? Infinity : a.rankChange || 0;
+          const bChange = b.rankChange === '-' ? Infinity : b.rankChange || 0;
+          return aChange - bChange;
+        });
+        break;
     }
 
     setFilteredData(filtered);
@@ -385,9 +726,9 @@ const LeaderboardPage = () => {
   };
 
   const handleTimeframeChange = async (timeframe) => {
-    setLoading(true);
     setSelectedTimeframe(timeframe);
     setCurrentPage(1);
+    setLoading(true);
     await fetchLeaderboardData(currentUser);
     setLoading(false);
   };
@@ -443,6 +784,12 @@ const LeaderboardPage = () => {
     router.push("/login");
   };
 
+  const refreshData = async () => {
+    setLoading(true);
+    await fetchLeaderboardData(currentUser);
+    setLoading(false);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -458,6 +805,7 @@ const LeaderboardPage = () => {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="flex flex-col items-center">
+          <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
           <div className="text-lg text-red-500 mb-4">{error}</div>
           <button onClick={checkAuthAndFetchData} className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors">
             Try Again
@@ -545,10 +893,18 @@ const LeaderboardPage = () => {
               </div>
               <div className="p-4 flex-grow">
                 <div className="h-[500px] rounded-lg overflow-hidden border border-gray-200">
-                  <LeafletMap points={mapPoints} />
+                  <LeafletMap 
+                    points={mapPoints} 
+                    userBusinessId={currentUser?.businessID}
+                    highlightUserBusiness={true}
+                  />
                 </div>
                 <div className="mt-3 text-sm text-gray-500">
-                  The map shows the approximate locations of participating companies in the leaderboard.
+                  {mapPoints.some(point => point.locationSource === 'database') ? (
+                    "The map shows the locations of participating companies in the leaderboard."
+                  ) : (
+                    "The map shows approximate locations for visualization purposes."
+                  )}
                 </div>
               </div>
             </div>
@@ -556,11 +912,17 @@ const LeaderboardPage = () => {
 
           <div className="lg:col-span-3 order-1 lg:order-2" ref={leaderboardTopRef}>
             <div className="bg-white rounded-xl shadow-md overflow-hidden mb-6">
-              <div className="border-b border-gray-200 bg-gradient-to-r from-green-600 to-green-700 text-white py-4 px-6">
+              <div className="border-b border-gray-200 bg-gradient-to-r from-green-600 to-green-700 text-white py-4 px-6 flex justify-between items-center">
                 <h2 className="text-xl font-semibold flex items-center">
                   <Trophy className="h-6 w-6 mr-2" />
                   {selectedTimeframe.charAt(0).toUpperCase() + selectedTimeframe.slice(1)} Leaderboard
                 </h2>
+                <button 
+                  onClick={refreshData}
+                  className="bg-white/20 text-white p-2 rounded-full shadow-lg hover:bg-white/30 transition-colors flex items-center"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
               </div>
               <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
                 <div className="flex flex-wrap gap-2 justify-center">
@@ -627,6 +989,7 @@ const LeaderboardPage = () => {
                       <option value="20">20</option>
                       <option value="50">50</option>
                       <option value="100">100</option>
+                      <option value="1000">All</option>
                     </select>
                   </div>
                 </div>
@@ -699,7 +1062,7 @@ const LeaderboardPage = () => {
                   </tbody>
                 </table>
               </div>
-              {filteredData.length > 0 && (
+              {filteredData.length > pageSize && (
                 <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
                   <div className="text-sm text-gray-700">
                     Showing <span className="font-medium">{((currentPage - 1) * pageSize) + 1}</span> to{' '}
@@ -749,7 +1112,7 @@ const LeaderboardPage = () => {
                           </>
                         );
                       }
-                      return 'Your company is not in this timeframe’s leaderboard.';
+                      return 'Your company is not in this timeframes leaderboard.';
                     })()
                   ) : (
                     <>Companies are ranked by waste per employee (lower is better), providing a fair comparison across different sizes.</>

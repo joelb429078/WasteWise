@@ -65,7 +65,14 @@ const WasteLogPage = () => {
     recentActivity: ''
   });
   
+  // Operation states
+  const [savingId, setSavingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  
   const router = useRouter();
+
+  // Define API base URL once
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
   const handleBack = () => {
     router.push("/dashboard");
@@ -140,7 +147,7 @@ const WasteLogPage = () => {
     'Other': { color: '#CE93D8', icon: <Package className="h-4 w-4" /> }
   };
   
-  // Check auth and fetch data
+  // Check auth and fetch data on component mount
   useEffect(() => {
     checkAuthAndFetchData();
   }, []);
@@ -164,63 +171,178 @@ const WasteLogPage = () => {
       tableTopRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, [currentPage]);
+
+  // Helper function to get auth headers from localStorage
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('authToken');
+    const userId = localStorage.getItem('userId');
+    const userEmail = localStorage.getItem('userEmail');
+    
+    if (!token || !userId || !userEmail) {
+      console.error("Missing authentication data");
+      return null;
+    }
+    
+    return {
+      'Authorization': `Bearer ${token}`,
+      'User-ID': userId,
+      'User-Email': userEmail,
+      'Content-Type': 'application/json'
+    };
+  };
   
+  // Check authentication and get current user
   const checkAuthAndFetchData = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // Check authentication
+      // Check authentication with Supabase
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
-        setError('You must be logged in to access this page');
-        setTimeout(() => {
-          window.location.href = '/login';
-        }, 2000);
-        return;
+        const tokenFromLocalStorage = localStorage.getItem('authToken');
+        
+        // If we have a token in localStorage but no Supabase session, try using that
+        if (tokenFromLocalStorage) {
+          console.log('No Supabase session, but token found in localStorage. Proceeding with caution.');
+        } else {
+          setError('You must be logged in to access this page');
+          setTimeout(() => {
+            router.push('/login');
+          }, 2000);
+          setLoading(false);
+          return;
+        }
       }
       
-      // Get current user
-      const { data: userData, error: userError } = await supabase
-        .from('Users')
-        .select('*')
-        .eq('email', session.user.email)
-        .single();
+      // Try to get user data from Supabase first
+      let userData = null;
+      const userEmail = session?.user?.email || localStorage.getItem('userEmail');
       
-      if (userError || !userData) {
+      if (userEmail) {
+        const { data: userDataFromSupabase, error: userError } = await supabase
+          .from('Users')
+          .select('*')
+          .eq('email', userEmail)
+          .single();
+        
+        if (userDataFromSupabase && !userError) {
+          userData = userDataFromSupabase;
+        } else {
+          console.error('Error fetching user data from Supabase:', userError);
+        }
+      }
+      
+      // If Supabase doesn't work, try the API
+      if (!userData) {
+        try {
+          const headers = getAuthHeaders();
+          if (headers) {
+            const response = await fetch(`${API_BASE_URL}/api/employee/profile`, {
+              method: 'GET',
+              headers,
+              credentials: 'include'
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.status === 'success' && data.data) {
+                userData = data.data;
+              }
+            }
+          }
+        } catch (apiError) {
+          console.error('Error fetching user data from API:', apiError);
+        }
+      }
+      
+      // If we still don't have user data, show error
+      if (!userData) {
         setError('Could not fetch user data');
         setLoading(false);
         return;
       }
       
+      // Set current user data
       setCurrentUser(userData);
       setIsAdmin(userData.admin || userData.owner);
       
       // Get company info
-      const { data: businessData } = await supabase
-        .from('Businesses')
-        .select('companyName')
-        .eq('businessID', userData.businessID)
-        .single();
+      let companyName = '';
       
-      if (businessData) {
-        setBusinessName(businessData.companyName);
+      // Try API first for business info
+      try {
+        const headers = getAuthHeaders();
+        if (headers) {
+          const response = await fetch(`${API_BASE_URL}/api/employee/business-info`, {
+            method: 'GET',
+            headers,
+            credentials: 'include'
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.data && data.data.companyName) {
+              companyName = data.data.companyName;
+            }
+          }
+        }
+      } catch (apiError) {
+        console.error('Error fetching business info from API:', apiError);
       }
       
-      // If admin, fetch all users for this business for filtering
-      if (userData.admin || userData.owner) {
-        const { data: usersData } = await supabase
-          .from('Users')
-          .select('userID, username')
-          .eq('businessID', userData.businessID);
+      // If API didn't work, try Supabase
+      if (!companyName) {
+        const { data: businessData } = await supabase
+          .from('Businesses')
+          .select('companyName')
+          .eq('businessID', userData.businessID)
+          .single();
         
-        if (usersData) {
-          setUsers(usersData);
+        if (businessData) {
+          companyName = businessData.companyName;
         }
       }
       
-      // Fetch waste logs based on user role
+      setBusinessName(companyName || 'Your Company');
+      
+      // If admin, fetch all users for this business for filtering
+      if (userData.admin || userData.owner) {
+        // Try API first
+        try {
+          const headers = getAuthHeaders();
+          if (headers) {
+            const response = await fetch(`${API_BASE_URL}/api/admin/employees`, {
+              method: 'GET',
+              headers,
+              credentials: 'include'
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.status === 'success' && data.data) {
+                setUsers(data.data);
+              } else {
+                // Fallback to Supabase
+                await fetchUsersFromSupabase(userData.businessID);
+              }
+            } else {
+              // Fallback to Supabase
+              await fetchUsersFromSupabase(userData.businessID);
+            }
+          } else {
+            // Fallback to Supabase
+            await fetchUsersFromSupabase(userData.businessID);
+          }
+        } catch (apiError) {
+          console.error('Error fetching employees from API:', apiError);
+          // Fallback to Supabase
+          await fetchUsersFromSupabase(userData.businessID);
+        }
+      }
+      
+      // Fetch waste logs
       await fetchWasteLogs(userData);
       
       setLoading(false);
@@ -231,8 +353,107 @@ const WasteLogPage = () => {
     }
   };
   
+  // Helper function to fetch users from Supabase
+  const fetchUsersFromSupabase = async (businessID) => {
+    try {
+      const { data: usersData } = await supabase
+        .from('Users')
+        .select('userID, username')
+        .eq('businessID', businessID);
+      
+      if (usersData) {
+        setUsers(usersData);
+      }
+    } catch (error) {
+      console.error('Error fetching users from Supabase:', error);
+    }
+  };
+  
+  // Fetch waste logs with API first, fallback to Supabase
   const fetchWasteLogs = async (user) => {
     try {
+      setLoading(true);
+      setError(null);
+      
+      // Get API headers from localStorage tokens
+      const headers = getAuthHeaders();
+      let logsData = [];
+      
+      // Try API first if we have headers
+      if (headers) {
+        try {
+          // Determine which endpoint to use based on user role
+          const endpoint = user.admin || user.owner
+            ? `${API_BASE_URL}/api/admin/waste-logs`
+            : `${API_BASE_URL}/api/employee/waste-logs`;
+          
+          console.log('Fetching waste logs from API:', endpoint);
+          
+          const response = await fetch(endpoint, {
+            method: 'GET',
+            headers,
+            credentials: 'include'
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.data && data.data.length > 0) {
+              logsData = data.data;
+              console.log('Successfully retrieved logs from API:', logsData.length);
+            } else {
+              console.log('API returned success but no data, trying Supabase');
+              const supabaseData = await fetchWasteLogsFromSupabase(user);
+              logsData = supabaseData || [];
+            }
+          } else {
+            console.log('API request failed, trying Supabase');
+            const supabaseData = await fetchWasteLogsFromSupabase(user);
+            logsData = supabaseData || [];
+          }
+        } catch (apiError) {
+          console.error('Error fetching from API:', apiError);
+          const supabaseData = await fetchWasteLogsFromSupabase(user);
+          logsData = supabaseData || [];
+        }
+      } else {
+        // No API headers, go straight to Supabase
+        console.log('No API headers available, using Supabase directly');
+        const supabaseData = await fetchWasteLogsFromSupabase(user);
+        logsData = supabaseData || [];
+      }
+      
+      // Process data to add formatted dates
+      const enhancedData = logsData.map(log => {
+        // Format date for display
+        const formattedDate = log.created_at 
+          ? format(parseISO(log.created_at), 'MMM d, yyyy h:mm a')
+          : 'Unknown date';
+        
+        return {
+          ...log,
+          formattedDate,
+          username: log.username || 'Unknown User'
+        };
+      });
+      
+      console.log(`Setting ${enhancedData.length} logs to state`);
+      setWastelogs(enhancedData);
+      
+      // Calculate stats
+      calculateStats(enhancedData);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error in fetchWasteLogs:', error);
+      setError('Failed to fetch waste logs');
+      setLoading(false);
+    }
+  };
+  
+  // Direct Supabase query as fallback
+  const fetchWasteLogsFromSupabase = async (user) => {
+    try {
+      console.log('Fetching waste logs from Supabase directly');
       let query = supabase.from('Wastelogs').select('*');
       
       if (user.admin || user.owner) {
@@ -252,7 +473,7 @@ const WasteLogPage = () => {
         throw error;
       }
       
-      if (data) {
+      if (data && data.length > 0) {
         // Process data to add formatted dates and fetch usernames
         const enhancedData = await Promise.all(data.map(async log => {
           // Format date for display
@@ -283,18 +504,19 @@ const WasteLogPage = () => {
           };
         }));
         
-        setWastelogs(enhancedData);
-        
-        // Calculate stats
-        calculateStats(enhancedData);
+        console.log(`Retrieved ${enhancedData.length} logs from Supabase`);
+        return enhancedData;
       }
+      
+      console.log('No logs found in Supabase');
+      return [];
     } catch (error) {
-      console.error('Error fetching waste logs:', error);
-      setError('Failed to fetch waste logs');
+      console.error('Error fetching waste logs from Supabase:', error);
+      return [];
     }
   };
   
-  // Calculate statistics
+  // Calculate statistics based on waste logs
   const calculateStats = (logs) => {
     if (!logs || logs.length === 0) {
       setStats({
@@ -351,7 +573,10 @@ const WasteLogPage = () => {
   
   // Apply filters to waste logs
   const applyFilters = () => {
-    if (!wastelogs) return;
+    if (!wastelogs || wastelogs.length === 0) {
+      setFilteredLogs([]);
+      return;
+    }
     
     let filtered = [...wastelogs];
     
@@ -359,9 +584,9 @@ const WasteLogPage = () => {
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(log => 
-        log.username?.toLowerCase().includes(term) ||
-        log.wasteType?.toLowerCase().includes(term) ||
-        log.location?.toLowerCase().includes(term) || null
+        (log.username && log.username.toLowerCase().includes(term)) ||
+        (log.wasteType && log.wasteType.toLowerCase().includes(term)) ||
+        (log.location && log.location.toLowerCase().includes(term))
       );
     }
     
@@ -414,7 +639,7 @@ const WasteLogPage = () => {
     // User filter
     if (filterOptions.user !== 'all') {
       filtered = filtered.filter(log =>
-        log.userID === filterOptions.user
+        String(log.userID) === String(filterOptions.user)
       );
     }
     
@@ -508,7 +733,7 @@ const WasteLogPage = () => {
     });
   };
   
-  // Save edited log
+  // Save edited log - with API first, fallback to Supabase
   const saveEdit = async (logID) => {
     try {
       // Validate form data
@@ -517,26 +742,60 @@ const WasteLogPage = () => {
         return;
       }
       
-      // Update in Supabase
-      const { error } = await supabase
-        .from('Wastelogs')
-        .update({
-          wasteType: editFormData.wasteType,
-          weight: editFormData.weight,
-          location: editFormData.location || null,
-        })
-        .eq('logID', logID);
+      // Set saving state
+      setSavingId(logID);
       
-      if (error) throw error;
+      const logData = {
+        wasteType: editFormData.wasteType,
+        weight: parseFloat(editFormData.weight),
+        location: editFormData.location || null,
+      };
+      
+      // Try API first
+      const headers = getAuthHeaders();
+      let success = false;
+      let message = '';
+      
+      if (headers) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/employee/update-waste/${logID}`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(logData),
+            credentials: 'include'
+          });
+          
+          const data = await response.json();
+          
+          if (data.status === 'success') {
+            success = true;
+            message = 'Waste log updated successfully via API';
+          }
+        } catch (apiError) {
+          console.error('Error updating via API:', apiError);
+          // Will fall back to Supabase
+        }
+      }
+      
+      // If API failed, try Supabase
+      if (!success) {
+        const { error } = await supabase
+          .from('Wastelogs')
+          .update(logData)
+          .eq('logID', logID);
+        
+        if (error) throw error;
+        
+        success = true;
+        message = 'Waste log updated successfully via Supabase';
+      }
       
       // Update local state
       setWastelogs(wastelogs.map(log => {
         if (log.logID === logID) {
           return {
             ...log,
-            wasteType: editFormData.wasteType,
-            weight: editFormData.weight,
-            location: editFormData.location || null,
+            ...logData,
           };
         }
         return log;
@@ -545,24 +804,67 @@ const WasteLogPage = () => {
       // Reset editing state
       cancelEditing();
       
+      // Remove saving state
+      setSavingId(null);
+      
       // Show success message
-      alert('Waste log updated successfully');
+      alert(message);
+      
+      // Refresh data to ensure everything is in sync
+      await fetchWasteLogs(currentUser);
+      
     } catch (error) {
       console.error('Error saving changes:', error);
       alert('Failed to update waste log. Please try again.');
+      
+      // Remove saving state
+      setSavingId(null);
     }
   };
   
-  // Delete log
+  // Delete log - with API first, fallback to Supabase
   const deleteLog = async (logID) => {
     try {
-      // Delete from Supabase
-      const { error } = await supabase
-        .from('Wastelogs')
-        .delete()
-        .eq('logID', logID);
+      // Set deleting state
+      setDeletingId(logID);
       
-      if (error) throw error;
+      // Try API first
+      const headers = getAuthHeaders();
+      let success = false;
+      let message = '';
+      
+      if (headers) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/employee/delete-waste/${logID}`, {
+            method: 'DELETE',
+            headers,
+            credentials: 'include'
+          });
+          
+          const data = await response.json();
+          
+          if (data.status === 'success') {
+            success = true;
+            message = 'Waste log deleted successfully via API';
+          }
+        } catch (apiError) {
+          console.error('Error deleting via API:', apiError);
+          // Will fall back to Supabase
+        }
+      }
+      
+      // If API failed, try Supabase
+      if (!success) {
+        const { error } = await supabase
+          .from('Wastelogs')
+          .delete()
+          .eq('logID', logID);
+        
+        if (error) throw error;
+        
+        success = true;
+        message = 'Waste log deleted successfully via Supabase';
+      }
       
       // Update local state
       setWastelogs(wastelogs.filter(log => log.logID !== logID));
@@ -570,11 +872,18 @@ const WasteLogPage = () => {
       // Reset delete confirmation
       setDeleteConfirmId(null);
       
+      // Remove deleting state
+      setDeletingId(null);
+      
       // Show success message
-      alert('Waste log deleted successfully');
+      alert(message);
+      
     } catch (error) {
       console.error('Error deleting log:', error);
       alert('Failed to delete waste log. Please try again.');
+      
+      // Remove deleting state
+      setDeletingId(null);
     }
   };
   
@@ -611,48 +920,71 @@ const WasteLogPage = () => {
       return;
     }
     
-    // Create CSV content
-    const headers = ['Date', 'User', 'Waste Type', 'Weight (kg)', 'Location'];
-    
-    const csvRows = [
-      headers.join(','),
-      ...filteredLogs.map(log => [
-        log.formattedDate || '',
-        log.username || '',
-        log.wasteType || '',
-        log.weight || '0',
-        log.location || '',
-      ].join(','))
-    ];
-    
-    const csvContent = csvRows.join('\n');
-    
-    // Create download link
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    
-    // Set up download
-    link.setAttribute('href', url);
-    link.setAttribute('download', `waste-logs-${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    
-    // Append to document, click, and remove
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      // Create CSV content
+      const headers = ['Date', 'User', 'Waste Type', 'Weight (kg)', 'Location', 'Business ID', 'Log ID'];
+      
+      const csvRows = [
+        headers.join(','),
+        ...filteredLogs.map(log => [
+          log.formattedDate || '',
+          log.username || '',
+          log.wasteType || '',
+          log.weight || '0',
+          log.location || '',
+          log.businessID || '',
+          log.logID || ''
+        ].join(','))
+      ];
+      
+      const csvContent = csvRows.join('\n');
+      
+      // Create download link
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      
+      // Set up download
+      const fileName = `waste-logs-${businessName.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`;
+      link.setAttribute('href', url);
+      link.setAttribute('download', fileName);
+      link.style.visibility = 'hidden';
+      
+      // Append to document, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      alert('CSV file has been downloaded');
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      alert('Error exporting CSV file. Please try again.');
+    }
   };
 
-    const [isActionBarVisible, setIsActionBarVisible] = useState(true);
+  // Action bar visibility
+  const [isActionBarVisible, setIsActionBarVisible] = useState(true);
 
-    const toggleActionBar = () => {
-        setIsActionBarVisible(!isActionBarVisible);
-    };
-  
+  const toggleActionBar = () => {
+    setIsActionBarVisible(!isActionBarVisible);
+  };
   
   // Print table
   const printTable = () => {
     window.print();
+  };
+  
+  // Refresh data
+  const refreshData = async () => {
+    try {
+      setLoading(true);
+      await fetchWasteLogs(currentUser);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      alert('Failed to refresh data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
   
   // Loading state
@@ -743,74 +1075,72 @@ const WasteLogPage = () => {
       
       {/* Main content */}
       <div className="container mx-auto mt-8 px-4 max-w-7xl">
-         {/* Animated Action Bar with Pull Tab - same as in Dashboard */}
-         <div className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-500 ease-in-out ${isActionBarVisible ? 'translate-y-0' : 'translate-y-24'}`}>
-        {/* Pull Tab */}
-        <div 
-          className="absolute -top-8 left-1/2 transform -translate-x-1/2 glass-effect rounded-t-lg px-4 py-2 cursor-pointer flex items-center gap-2 shadow-md z-50 transition-all duration-300 hover:bg-gray-100"
-          onClick={toggleActionBar}
-        >
-          <div className="h-1 w-8 bg-gray-400 rounded-full"></div>
-          {isActionBarVisible ? (
-            <span className="text-xs text-gray-500 flex items-center">
-              Hide <ChevronDown className="h-3 w-3 ml-1" />
-            </span>
-          ) : (
-            <span className="text-xs text-gray-500 flex items-center">
-              Show <ChevronUp className="h-3 w-3 ml-1" />
-            </span>
-          )}
-        </div>
-        
-        {/* Action Bar Background */}
-        <div className="bg-gray-50/50 backdrop-blur-sm border-t border-gray-200 h-24 w-full"></div>
-        
-        {/* Glassmorphic Quick Action Bar */}
-                {/* Glassmorphic Quick Action Bar */}
-                <div className="absolute top-6 left-0 right-0 flex justify-center z-50 px-4">
-          <div className="glass-effect rounded-full px-4 py-3 flex items-center gap-3 md:gap-5 mx-auto shadow-xl">
-            <a 
-              href="/add-waste" 
-              className="bg-green-500 hover:bg-green-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
-              title="Add Waste Entry"
-            >
-              <Plus className="h-5 w-5 md:h-6 md:w-6" />
-              <span className="hidden md:inline ml-2">Add Waste</span>
-            </a>
-            
-            <a 
-              href="/leaderboard" 
-              className="bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
-              title="Leaderboard"
-            >
-              <Clipboard className="h-5 w-5 md:h-6 md:w-6" />
-              <span className="hidden md:inline ml-2">Leaderboard</span>
-            </a>
+        {/* Animated Action Bar with Pull Tab - same as in Dashboard */}
+        <div className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-500 ease-in-out ${isActionBarVisible ? 'translate-y-0' : 'translate-y-24'}`}>
+          {/* Pull Tab */}
+          <div 
+            className="absolute -top-8 left-1/2 transform -translate-x-1/2 glass-effect rounded-t-lg px-4 py-2 cursor-pointer flex items-center gap-2 shadow-md z-50 transition-all duration-300 hover:bg-gray-100"
+            onClick={toggleActionBar}
+          >
+            <div className="h-1 w-8 bg-gray-400 rounded-full"></div>
+            {isActionBarVisible ? (
+              <span className="text-xs text-gray-500 flex items-center">
+                Hide <ChevronDown className="h-3 w-3 ml-1" />
+              </span>
+            ) : (
+              <span className="text-xs text-gray-500 flex items-center">
+                Show <ChevronUp className="h-3 w-3 ml-1" />
+              </span>
+            )}
+          </div>
+          
+          {/* Action Bar Background */}
+          <div className="bg-gray-50/50 backdrop-blur-sm border-t border-gray-200 h-24 w-full"></div>
+          
+          {/* Glassmorphic Quick Action Bar */}
+          <div className="absolute top-6 left-0 right-0 flex justify-center z-50 px-4">
+            <div className="glass-effect rounded-full px-4 py-3 flex items-center gap-3 md:gap-5 mx-auto shadow-xl">
+              <a 
+                href="/add-waste" 
+                className="bg-green-500 hover:bg-green-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
+                title="Add Waste Entry"
+              >
+                <Plus className="h-5 w-5 md:h-6 md:w-6" />
+                <span className="hidden md:inline ml-2">Add Waste</span>
+              </a>
+              
+              <a 
+                href="/leaderboard" 
+                className="bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
+                title="Leaderboard"
+              >
+                <Clipboard className="h-5 w-5 md:h-6 md:w-6" />
+                <span className="hidden md:inline ml-2">Leaderboard</span>
+              </a>
 
-            <a 
+              <a 
                 href="/dashboard" 
                 className="bg-purple-500 hover:bg-purple-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
                 title="Employee Table"
-            >
+              >
                 <BarChart2 className="h-5 w-5 md:h-6 md:w-6" />
                 <span className="hidden md:inline ml-2">Dashboard</span>
-            </a>
-            
-            <a 
-              href="/employeemanagement" 
-              className="bg-amber-500 hover:bg-amber-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
-              title="Dashboard"
-            >
-              <Users className="h-5 w-5 md:h-6 md:w-6" />
-              <span className="hidden md:inline ml-2">Employees</span>
-            </a>
+              </a>
+              
+              <a 
+                href="/employeemanagement" 
+                className="bg-amber-500 hover:bg-amber-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md"
+                title="Dashboard"
+              >
+                <Users className="h-5 w-5 md:h-6 md:w-6" />
+                <span className="hidden md:inline ml-2">Employees</span>
+              </a>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Add padding to the bottom of your content to avoid overlap with the action bar */}
-      <div className={`transition-all duration-500 ease-in-out ${isActionBarVisible ? 'pb-24' : 'pb-0'}`}></div>
-
+        {/* Add padding to the bottom of your content to avoid overlap with the action bar */}
+        <div className={`transition-all duration-500 ease-in-out ${isActionBarVisible ? 'pb-24' : 'pb-0'}`}></div>
 
         {/* Filters Section */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-6">
@@ -824,6 +1154,14 @@ const WasteLogPage = () => {
               >
                 <RefreshCw className="h-4 w-4" />
                 Reset
+              </button>
+              
+              <button 
+                onClick={refreshData}
+                className="px-4 py-2 text-sm bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors flex items-center gap-1"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Refresh
               </button>
               
               <button 
@@ -1008,7 +1346,10 @@ const WasteLogPage = () => {
                   getCurrentPageLogs().map((log, index) => (
                     <tr 
                       key={log.logID} 
-                      className={index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100'}
+                      id={`log-${log.logID}`}
+                      className={`${index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100'} 
+                        ${savingId === log.logID || deletingId === log.logID ? 'opacity-50' : ''}
+                      `}
                       style={{ transition: 'background-color 0.2s' }}
                     >
                       {/* Date Column */}
@@ -1103,13 +1444,19 @@ const WasteLogPage = () => {
                           <div className="flex space-x-2">
                             <button
                               onClick={() => saveEdit(log.logID)}
+                              disabled={savingId === log.logID}
                               className="text-green-600 hover:text-green-900 flex items-center"
                             >
-                              <Save className="h-4 w-4 mr-1" />
-                              <span>Save</span>
+                              {savingId === log.logID ? (
+                                <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                              ) : (
+                                <Save className="h-4 w-4 mr-1" />
+                              )}
+                              <span>{savingId === log.logID ? 'Saving...' : 'Save'}</span>
                             </button>
                             <button
                               onClick={cancelEditing}
+                              disabled={savingId === log.logID}
                               className="text-gray-600 hover:text-gray-900 flex items-center"
                             >
                               <X className="h-4 w-4 mr-1" />
@@ -1121,6 +1468,7 @@ const WasteLogPage = () => {
                             <button
                               onClick={() => viewDetails(log)}
                               className="text-blue-600 hover:text-blue-900 flex items-center"
+                              disabled={savingId === log.logID || deletingId === log.logID}
                             >
                               <Eye className="h-4 w-4 mr-1" />
                               <span>View</span>
@@ -1128,6 +1476,7 @@ const WasteLogPage = () => {
                             <button
                               onClick={() => startEditing(log)}
                               className="text-green-600 hover:text-green-900 flex items-center"
+                              disabled={savingId === log.logID || deletingId === log.logID}
                             >
                               <Edit className="h-4 w-4 mr-1" />
                               <span>Edit</span>
@@ -1135,9 +1484,10 @@ const WasteLogPage = () => {
                             <button
                               onClick={() => setDeleteConfirmId(log.logID)}
                               className="text-red-600 hover:text-red-900 flex items-center"
+                              disabled={savingId === log.logID || deletingId === log.logID}
                             >
                               <Trash2 className="h-4 w-4 mr-1" />
-                              <span>Delete</span>
+                              <span>{deletingId === log.logID ? 'Deleting...' : 'Delete'}</span>
                             </button>
                             
                             {/* Delete Confirmation Popup */}
@@ -1149,14 +1499,23 @@ const WasteLogPage = () => {
                                     <button
                                       onClick={() => setDeleteConfirmId(null)}
                                       className="px-3 py-1 text-xs text-gray-700 hover:bg-gray-100 rounded"
+                                      disabled={deletingId === log.logID}
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       onClick={() => deleteLog(log.logID)}
-                                      className="px-3 py-1 text-xs bg-red-600 text-white hover:bg-red-700 rounded"
+                                      className="px-3 py-1 text-xs bg-red-600 text-white hover:bg-red-700 rounded flex items-center"
+                                      disabled={deletingId === log.logID}
                                     >
-                                      Delete
+                                      {deletingId === log.logID ? (
+                                        <>
+                                          <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                                          Deleting...
+                                        </>
+                                      ) : (
+                                        'Delete'
+                                      )}
                                     </button>
                                   </div>
                                 </div>
@@ -1289,6 +1648,7 @@ const WasteLogPage = () => {
                   </div>
                 </div>
                 
+                {/* Only show image if it exists */}
                 {viewLogDetails.trashImageLink && (
                   <div>
                     <div className="text-sm text-gray-500">Image</div>
@@ -1298,6 +1658,17 @@ const WasteLogPage = () => {
                         alt="Waste log" 
                         className="rounded-md w-full h-auto max-h-48 object-cover"
                       />
+                    </div>
+                  </div>
+                )}
+                
+                {/* Add business info if admin */}
+                {isAdmin && (
+                  <div>
+                    <div className="text-sm text-gray-500">Business Info</div>
+                    <div className="mt-1">
+                      <div className="text-gray-800">Business ID: {viewLogDetails.businessID || 'N/A'}</div>
+                      <div className="text-gray-800">Log ID: {viewLogDetails.logID || 'N/A'}</div>
                     </div>
                   </div>
                 )}

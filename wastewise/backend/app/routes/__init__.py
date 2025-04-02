@@ -1,3 +1,3 @@
-from app.routes import auth, admin, employee, employeeSignUp, dashboard, wastelogs, leaderboard
+from app.routes import auth, admin, employee, employeeSignUp, dashboard, wastelogs, leaderboard, public
 
-__all__ = ['auth', 'admin', 'employee', "employeeSignUp", "dashboard", "wastelogs", "leaderboard"]
+__all__ = ['auth', 'admin', 'employee', "employeeSignUp", "dashboard", "wastelogs", "leaderboard", "public"]

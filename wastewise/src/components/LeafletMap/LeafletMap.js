@@ -1,4 +1,4 @@
-// components/LeafletMap.js
+// components/LeafletMap/LeafletMap.js
 import React, { useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, ZoomControl, Circle } from 'react-leaflet';
 import L from 'leaflet';
@@ -109,7 +109,7 @@ const MAP_ATTRIBUTIONS = {
   terrain: 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under <a href="http://creativecommons.org/licenses/by-sa/3.0">CC BY SA</a>',
 };
 
-// Fixed UK locations for map points
+// Fixed UK locations for map points as fallback
 const UK_LOCATIONS = [
   { name: "London", position: [51.5074, -0.1278] },
   { name: "Manchester", position: [53.4808, -2.2426] },
@@ -149,7 +149,7 @@ const createCustomIcon = (rank) => {
   let iconUrl, iconClass;
   
   if (rank === 1) {
-    iconUrl = '/images/marker-gold.png'; // You'll need to add these custom marker images to your public folder
+    iconUrl = '/images/marker-gold.png'; // Custom marker images 
     iconClass = 'custom-marker-gold';
   } else if (rank === 2) {
     iconUrl = '/images/marker-silver.png';
@@ -207,6 +207,10 @@ const createCustomPopupContent = (point) => {
           <span class="custom-popup-label">Waste</span>
           <span class="custom-popup-value">${point.waste} kg</span>
         </div>
+        <div class="custom-popup-row">
+          <span class="custom-popup-label">Waste/Employee</span>
+          <span class="custom-popup-value">${point.wastePerEmployee} kg</span>
+        </div>
         ${point.change ? `
         <div class="custom-popup-row">
           <span class="custom-popup-label">Change</span>
@@ -218,12 +222,17 @@ const createCustomPopupContent = (point) => {
   `;
 };
 
-// Function to assign fixed UK locations to map points
-const assignFixedLocations = (points) => {
+// Function to ensure all map points have positions
+const ensurePositions = (points) => {
   if (!points || points.length === 0) return [];
   
   return points.map((point, index) => {
-    // Use a modulo operation to loop through the UK locations if we have more points than locations
+    // If the point already has a position, use it
+    if (point.position && Array.isArray(point.position) && point.position.length === 2) {
+      return point;
+    }
+    
+    // Otherwise, assign a UK location using modulo to cycle through the locations
     const locationIndex = index % UK_LOCATIONS.length;
     const location = UK_LOCATIONS[locationIndex];
     
@@ -242,14 +251,19 @@ const LeafletMap = ({
   showCircles = true,
   highlightUserBusiness = true,
   userBusinessId = null,
-  initialZoom = 6 // Set default zoom to better fit UK
+  initialZoom = 6 // Default zoom to fit UK
 }) => {
   const [isClient, setIsClient] = useState(false);
   const [selectedMapStyle, setSelectedMapStyle] = useState(mapStyle);
+  const [processedPoints, setProcessedPoints] = useState([]);
   const mapRef = useRef(null);
   
-  // Convert input points to have fixed UK locations
-  const pointsWithFixedLocations = assignFixedLocations(points);
+  // Process the input points on mount and when they change
+  useEffect(() => {
+    // Ensure all points have valid positions
+    const pointsWithPositions = ensurePositions(points);
+    setProcessedPoints(pointsWithPositions);
+  }, [points]);
   
   // Fix Leaflet icon issue and add custom styles
   useEffect(() => {
@@ -275,11 +289,11 @@ const LeafletMap = ({
   
   // Function to fit map bounds to all points
   const fitBoundsToPoints = () => {
-    if (mapRef.current && pointsWithFixedLocations.length > 0) {
+    if (mapRef.current && processedPoints.length > 0) {
       const map = mapRef.current;
       
       // Create bounds from all points
-      const bounds = L.latLngBounds(pointsWithFixedLocations.map(p => p.position));
+      const bounds = L.latLngBounds(processedPoints.map(p => p.position));
       
       // Fit map to bounds with padding
       map.fitBounds(bounds, { padding: [50, 50] });
@@ -288,15 +302,26 @@ const LeafletMap = ({
   
   // Effect to fit bounds when points change
   useEffect(() => {
-    if (isClient && pointsWithFixedLocations.length > 0) {
+    if (isClient && processedPoints.length > 0) {
       // Small delay to ensure map is fully loaded
       setTimeout(fitBoundsToPoints, 100);
     }
-  }, [isClient, pointsWithFixedLocations]);
+  }, [isClient, processedPoints]);
   
   // Calculate map center based on UK center
   const getMapCenter = () => {
-    // Center on UK (approximately)
+    // If we have points with real coordinates, center on their average
+    if (processedPoints.length > 0) {
+      const validPoints = processedPoints.filter(p => p.position && Array.isArray(p.position) && p.position.length === 2);
+      
+      if (validPoints.length > 0) {
+        const avgLat = validPoints.reduce((sum, p) => sum + p.position[0], 0) / validPoints.length;
+        const avgLng = validPoints.reduce((sum, p) => sum + p.position[1], 0) / validPoints.length;
+        return [avgLat, avgLng];
+      }
+    }
+    
+    // Fallback to center on UK
     return [54.0, -2.0];
   };
   
@@ -350,7 +375,7 @@ const LeafletMap = ({
         </div>
         
         {/* Render points with circles */}
-        {pointsWithFixedLocations.map((point) => (
+        {processedPoints.map((point) => (
           <React.Fragment key={point.id}>
             <Marker
               position={point.position}
@@ -360,8 +385,8 @@ const LeafletMap = ({
                 <div dangerouslySetInnerHTML={{ 
                   __html: createCustomPopupContent({
                     ...point,
-                    // Update name to include location for clarity
-                    name: `${point.name} (${point.locationName || 'UK'})`
+                    // Include location name if available
+                    name: point.locationName ? `${point.name} (${point.locationName})` : point.name
                   }) 
                 }} />
               </Popup>

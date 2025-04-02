@@ -1,218 +1,112 @@
 'use client';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { Trophy, Award, Medal, ArrowUp, ArrowDown, RefreshCw, ExternalLink } from 'lucide-react';
-import { getMockLeaderboardData } from '@/components/data/mockData';
+import { Trophy, Award, Medal, RefreshCw, ExternalLink } from 'lucide-react';
 
 export const LeaderboardPreview = () => {
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [stats, setStats] = useState({
-    averageWastePerEmployee: 4.2, // kg per employee (lower is better)
-    totalCompanies: 124
+    averageWastePerEmployee: 'N/A',
+    totalCompanies: 'N/A'
   });
-
-  // Reliable fallback data with correct waste per employee values (lower is better)
-  const fallbackData = [
-    { id: 1, company: "EcoCare Consulting", position: 1, wastePerEmployee: 1.8, change: 1, wasteType: "Mixed" },
-    { id: 2, company: "GreenTech Solutions", position: 2, wastePerEmployee: 3.2, change: -1, wasteType: "Paper" },
-    { id: 3, company: "Urban Recyclers Ltd", position: 3, wastePerEmployee: 4.1, change: 2, wasteType: "Plastic" },
-    { id: 4, company: "Sustainable Foods Inc", position: 4, wastePerEmployee: 4.8, change: -2, wasteType: "Food" },
-    { id: 5, company: "Green Planet Logistics", position: 5, wastePerEmployee: 5.3, change: 0, wasteType: "Mixed" }
-  ];
-
-  // Attempt to fetch leaderboard data with proper auth
-  useEffect(() => {
-    const fetchLeaderboardDataOLD= async () => {
-      try {
-        setLoading(true);
-        
-        // Use the same API endpoint as in your LeaderboardPage
-        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-        
-        // Try to get auth data from localStorage 
-        // (this will only work if the user is logged in)
-        const token = localStorage.getItem('authToken');
-        const userId = localStorage.getItem('userId');
-        const userEmail = localStorage.getItem('userEmail');
-        
-        // Only attempt API call if we have authentication data
-        if (token && userId && userEmail) {
-          const response = await fetch(`${API_BASE_URL}/api/employee/leaderboard?timeframe=season`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'User-ID': userId,
-              'User-Email': userEmail,
-              'Content-Type': 'application/json'
-            },
-            credentials: 'include'
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            
-            if (data.status === 'success' && data.data && data.data.length > 0) {
-              // Process the data - companies with lower waste per employee are ranked higher
-              const processedData = data.data
-                .sort((a, b) => {
-                  const wastePerEmployeeA = parseFloat(a.wastePerEmployee || a.formattedWastePerEmployee || 1000);
-                  const wastePerEmployeeB = parseFloat(b.wastePerEmployee || b.formattedWastePerEmployee || 1000);
-                  return wastePerEmployeeA - wastePerEmployeeB; // Lower waste is better
-                })
-                .slice(0, 5) // Just take top 5
-                .map((entry, index) => {
-                  // Extract rank change (if available)
-                  const previousRank = entry.previousRank || (index + 2); // Fallback if not available
-                  const currentRank = index + 1; // Since we're sorting ourselves
-                  const rankChange = previousRank - currentRank;
-                  
-                  return {
-                    id: entry.businessID || index + 1,
-                    company: entry.companyName || entry.username || `Company ${index + 1}`,
-                    position: currentRank,
-                    wastePerEmployee: parseFloat(entry.formattedWastePerEmployee || entry.wastePerEmployee || 0).toFixed(1),
-                    change: rankChange,
-                    wasteType: entry.wasteType || "Mixed"
-                  };
-                });
-              
-              // Update data if we successfully processed it
-              if (processedData.length > 0) {
-                setLeaderboardData(processedData);
-                
-                // Calculate average waste per employee
-                const avgWaste = data.data.reduce((sum, item) => {
-                  return sum + parseFloat(item.wastePerEmployee || item.formattedWastePerEmployee || 0);
-                }, 0) / data.data.length;
-                
-                // Update the stats with real data
-                setStats({
-                  totalCompanies: data.data.length || 124,
-                  averageWastePerEmployee: avgWaste.toFixed(1) || 4.2
-                });
-                
-                setLoading(false);
-                return; // Exit the function if successful
-              }
-            }
-          }
-        }
-        
-        // If we get here, either there's no auth data or the API call failed
-        // Use fallback data without showing an error
-        console.log("Using fallback data for leaderboard preview");
-        setLeaderboardData(fallbackData);
-        setLoading(false);
-        
-      } catch (error) {
-        // Silent error handling - just use fallback data
-        console.log("Error in leaderboard preview, using fallback data:", error);
-        setLeaderboardData(fallbackData);
-        setLoading(false);
-      }
-    };
-
-    fetchLeaderboardDataOLD();
-  }, []);
 
   useEffect(() => {
     const fetchLeaderboardData = async () => {
       try {
         setLoading(true);
+        setError(false);
         
-        // Get mock data directly from localStorage
-        const leaderboardData = getMockLeaderboardData().slice(0, 5);
+        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
         
-        // Calculate average waste per employee
-        const avgWaste = leaderboardData.reduce((sum, item) => 
-          sum + parseFloat(item.formattedWastePerEmployee || item.wastePerEmployee || 0), 0) / leaderboardData.length;
+        try {
+          const publicResponse = await fetch(`${API_BASE_URL}/api/public/leaderboard`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          
+          if (publicResponse.ok) {
+            const publicData = await publicResponse.json();
+            console.log('Fetched leaderboard data:', publicData);
+            processLeaderboardData(publicData);
+            return;
+          }
+        } catch (publicError) {
+          console.log('Public endpoint not available, trying backend mock data');
+        }
         
-        // Format data for this component
-        const processedData = leaderboardData.map(entry => ({
-          id: entry.businessID,
-          company: entry.companyName,
-          position: entry.rank,
-          wastePerEmployee: parseFloat(entry.formattedWastePerEmployee || entry.wastePerEmployee || 0),
-          change: entry.rankChange,
-          wasteType: entry.wasteType || "Mixed"
-        }));
+        const mockResponse = await fetch(`${API_BASE_URL}/api/mock/leaderboard-preview`);
+        if (mockResponse.ok) {
+          const mockData = await mockResponse.json();
+          console.log('Fetched mock data:', mockData);
+          processLeaderboardData(mockData);
+          return;
+        }
         
-        setLeaderboardData(processedData);
-        
-        // Update stats
-        setStats({
-          totalCompanies: getMockLeaderboardData().length,
-          averageWastePerEmployee: avgWaste.toFixed(1)
-        });
-        
-        setLoading(false);
+        throw new Error('No data sources available');
       } catch (error) {
-        console.error('Error in leaderboard preview:', error);
+        console.error('Error fetching leaderboard data:', error);
+        setError(true);
+      } finally {
         setLoading(false);
       }
     };
-  
+    
+    const processLeaderboardData = (data) => {
+      if (!data || !data.data) {
+        setError(true);
+        return;
+      }
+      
+      const { companies, stats: backendStats } = data.data;
+      console.log('Raw companies:', companies);
+      
+      // Sort by waste per employee (just to be sure, though backend should handle this)
+      const sortedCompanies = [...companies].sort((a, b) => 
+        parseFloat(a.wastePerEmployee || 0) - parseFloat(b.wastePerEmployee || 0)
+      );
+      const top5Companies = sortedCompanies.slice(0, 5);
+      
+      const processedData = top5Companies.map((company, index) => ({
+        id: company.businessID,
+        company: company.companyName || 'Unknown Company',
+        position: index + 1,
+        wastePerEmployee: parseFloat(company.wastePerEmployee).toFixed(2),
+        wasteType: company.wasteType || "Mixed"
+      }));
+      
+      console.log('Processed leaderboard data:', processedData);
+      setLeaderboardData(processedData);
+      
+      setStats({
+        totalCompanies: backendStats.totalCompanies || 'N/A',
+        averageWastePerEmployee: parseFloat(backendStats.averageWastePerEmployee).toFixed(2) || 'N/A'
+      });
+    };
+    
     fetchLeaderboardData();
   }, []);
 
-  // Helper function to render rank change
-  const renderRankChange = (change) => {
-    if (change > 0) {
-      return (
-        <div className="flex items-center text-green-600 text-sm">
-          <ArrowUp className="h-4 w-4 mr-1" />
-          <span>+{change}</span>
-        </div>
-      );
-    } else if (change < 0) {
-      return (
-        <div className="flex items-center text-red-600 text-sm">
-          <ArrowDown className="h-4 w-4 mr-1" />
-          <span>{change}</span>
-        </div>
-      );
-    } else {
-      return (
-        <div className="flex items-center text-gray-500 text-sm">
-          <span>No change</span>
-        </div>
-      );
-    }
-  };
-
-  // Helper function to get medal icon based on position
   const getMedalIcon = (position) => {
     switch(position) {
-      case 1:
-        return <Trophy className="h-6 w-6 text-yellow-500" />;
-      case 2:
-        return <Medal className="h-6 w-6 text-gray-400" />;
-      case 3:
-        return <Award className="h-6 w-6 text-amber-700" />;
-      default:
-        return null;
+      case 1: return <Trophy className="h-6 w-6 text-yellow-500" />;
+      case 2: return <Medal className="h-6 w-6 text-gray-400" />;
+      case 3: return <Award className="h-6 w-6 text-amber-700" />;
+      default: return null;
     }
   };
 
-  // Helper function to get waste type chip color
   const getWasteTypeColor = (type) => {
     switch(type?.toLowerCase()) {
-      case 'paper':
-        return 'bg-blue-100 text-blue-800';
-      case 'plastic':
-        return 'bg-red-100 text-red-800';
-      case 'food':
-        return 'bg-green-100 text-green-800';
-      case 'glass':
-        return 'bg-purple-100 text-purple-800';
-      case 'metal':
-        return 'bg-yellow-100 text-yellow-800';
+      case 'paper': return 'bg-blue-100 text-blue-800';
+      case 'plastic': return 'bg-red-100 text-red-800';
+      case 'food': return 'bg-green-100 text-green-800';
+      case 'glass': return 'bg-purple-100 text-purple-800';
+      case 'metal': return 'bg-yellow-100 text-yellow-800';
       case 'electronics':
-      case 'electronic':
-        return 'bg-indigo-100 text-indigo-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
+      case 'electronic': return 'bg-indigo-100 text-indigo-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -228,7 +122,6 @@ export const LeaderboardPreview = () => {
               <p className="mt-4 text-lg text-gray-500 max-w-lg">
                 See how businesses are making a difference. Our public leaderboard showcases top performers with the lowest waste per employee.
               </p>
-              
               <div className="mt-8 flex flex-col sm:flex-row gap-4">
                 <Link 
                   href="/public-info" 
@@ -238,7 +131,6 @@ export const LeaderboardPreview = () => {
                 </Link>
               </div>
             </div>
-            
             <div className="mt-12 grid grid-cols-2 gap-6">
               <div className="rounded-xl shadow-lg p-6 bg-gradient-to-br from-green-50 to-green-100 transition duration-300 transform hover:scale-105 hover:shadow-xl">
                 <div className="text-center">
@@ -251,7 +143,6 @@ export const LeaderboardPreview = () => {
                   <p className="mt-2 text-sm font-medium text-gray-600">Avg. Waste per Employee (kg)</p>
                 </div>
               </div>
-              
               <div className="rounded-xl shadow-lg p-6 bg-gradient-to-br from-blue-50 to-blue-100 transition duration-300 transform hover:scale-105 hover:shadow-xl">
                 <div className="text-center">
                   <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-100 mb-4">
@@ -265,7 +156,6 @@ export const LeaderboardPreview = () => {
               </div>
             </div>
           </div>
-          
           <div className="col-span-7 mt-12 lg:mt-0">
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100 transform transition duration-300 hover:shadow-2xl">
               <div className="px-6 py-5 bg-gradient-to-r from-green-600 to-green-700 text-white">
@@ -283,12 +173,19 @@ export const LeaderboardPreview = () => {
                   </Link>
                 </div>
               </div>
-              
               <div>
                 {loading ? (
                   <div className="py-12 flex flex-col items-center justify-center">
                     <RefreshCw className="h-8 w-8 text-green-500 animate-spin mb-4" />
                     <p className="text-gray-500">Loading leaderboard data...</p>
+                  </div>
+                ) : error ? (
+                  <div className="py-12 flex flex-col items-center justify-center">
+                    <p className="text-gray-500">Unable to load leaderboard data</p>
+                  </div>
+                ) : leaderboardData.length === 0 ? (
+                  <div className="py-12 flex flex-col items-center justify-center">
+                    <p className="text-gray-500">No companies with waste logs yet</p>
                   </div>
                 ) : (
                   <ul className="divide-y divide-gray-100">
@@ -318,16 +215,12 @@ export const LeaderboardPreview = () => {
                               </div>
                             </div>
                           </div>
-                          <div className="flex-shrink-0 flex items-center">
-                            {renderRankChange(company.change)}
-                          </div>
                         </div>
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
-              
               <div className="bg-gray-50 px-6 py-3 border-t border-gray-100">
                 <Link 
                   href="/public-info" 

@@ -25,7 +25,9 @@ def create_app():
     from app.routes.employee import bp as employee_bp
     from app.routes.employeeSignUp import bp as employeeSignUp_bp
     from app.routes.dashboard import bp as dashboard_bp
-    
+    from app.routes.public import bp as public_bp
+
+    app.register_blueprint(public_bp, url_prefix='/api/public')
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(employee_bp, url_prefix='/api/employee')
