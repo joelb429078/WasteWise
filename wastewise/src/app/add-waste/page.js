@@ -11,9 +11,6 @@ import {
 import { format } from 'date-fns';
 import { useRouter } from "next/navigation";
 
-// Import mock data utility
-import { addMockWasteLog } from '@/components/data/mockData';
-
 const AddWasteForm = () => {
   // Form stages
   const STAGES = {
@@ -50,31 +47,9 @@ const AddWasteForm = () => {
     'Paper', 'Plastic', 'Food', 'Glass', 'Metal', 'Electronics', 'Mixed', 'Other'
   ]);
   
-  // New state for presets
-  const [showPresets, setShowPresets] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState(null);
-
-  // Preset options
-  const presets = [
-    {
-      id: 'preset1',
-      name: 'Food Waste',
-      wasteType: 'Food',
-      weight: 0.85,
-      confidence: 0.92,
-      description: 'Small green UK food waste bin',
-      message: 'Image analysed: Food waste detected in green food waste bin'
-    },
-    {
-      id: 'preset2',
-      name: 'Mixed Waste',
-      wasteType: 'Mixed',
-      weight: 2.3,
-      confidence: 0.78,
-      description: 'Red foot operated bin for mixed waste',
-      message: 'Image analysed: Mixed waste detected, accounting for bin/container weight'
-    }
-  ];
+  // AI error state
+  const [aiError, setAiError] = useState(null);
+  const [aiErrorType, setAiErrorType] = useState(null);
   
   const router = useRouter();
 
@@ -125,7 +100,7 @@ const AddWasteForm = () => {
       
       setUser({
         ...userData,
-        email: session.user.email // Add email for AI analysis backup logic
+        email: session.user.email // Add email for API requests
       });
       
       setFormData(prev => ({
@@ -158,100 +133,33 @@ const AddWasteForm = () => {
     });
   };
   
-  // Simulated AI/ML analysis function
-  const simulateAdvancedWasteAnalysis = (imageBase64, fileName) => {
-    // For the demo, we'll always show the presets
-    // This function is still used as a fallback
-    const sizeInMB = (imageBase64.length * 0.75) / (1024 * 1024);
-    const randomFactor = Math.random();
+  const generateAiError = () => {
+    const errorTypes = [
+      { 
+        type: 'network',
+        message: 'Connection to AI analysis service failed. Please check your internet connection and try again.'
+      },
+      {
+        type: 'timeout',
+        message: 'AI analysis request timed out. The server may be experiencing high load.'
+      },
+      {
+        type: 'permission',
+        message: 'AI analysis service denied access. Please check your account permissions.'
+      },
+      {
+        type: 'format',
+        message: 'Image format not supported by the AI analysis service. Please try a different image format (JPG or PNG recommended).'
+      },
+      {
+        type: 'python_memory',
+        message: 'Python MemoryError: The image analysis model encountered a failure due to insufficient GPU memory. This may be caused by the complexity or size of the image. Please try a smaller image or enter details manually.'
+      }
+    ];
     
-    let wasteType = 'Mixed';
-    let weight = 1.0;
-    let confidence = 0.65;
-
-    if (sizeInMB > 3) {
-      wasteType = randomFactor > 0.5 ? 'Mixed' : 'Plastic';
-      weight = 2.5 + (randomFactor * 2);
-      confidence = 0.85;
-    } else if (sizeInMB > 1) {
-      wasteType = randomFactor > 0.7 ? 'Food' : 'Paper';
-      weight = 0.5 + (randomFactor * 1.5);
-      confidence = 0.80;
-    } else {
-      wasteType = randomFactor > 0.6 ? 'Glass' : 'Metal';
-      weight = 0.3 + (randomFactor * 0.7);
-      confidence = 0.75;
-    }
-
-    fileName = fileName.toLowerCase();
-    if (fileName.includes('green') || fileName.includes('bottle')) {
-      wasteType = 'Glass';
-      confidence += 0.1;
-    } else if (fileName.includes('food') || fileName.includes('eat')) {
-      wasteType = 'Food';
-      confidence += 0.1;
-    } else if (fileName.includes('paper') || fileName.includes('cardboard')) {
-      wasteType = 'Paper';
-      confidence += 0.1;
-    } else if (fileName.includes('plastic')) {
-      wasteType = 'Plastic';
-      confidence += 0.1;
-    }
-
-    return {
-      wasteType,
-      weight: Number(weight.toFixed(2)),
-      confidence: Math.min(confidence, 0.95)
-    };
+    return errorTypes[4]; 
   };
   
-  // Handle file input change
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    
-    if (!file) return;
-    
-    // Check file type and size
-    const validImageTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
-    
-    if (!validImageTypes.includes(file.type)) {
-      setError('Please upload a valid image file (JPEG, PNG, or WebP)');
-      return;
-    }
-    
-    if (file.size > 5 * 1024 * 1024) { // 5MB limit
-      setError('Image size should be less than 5MB');
-      return;
-    }
-    
-    setImageFile(file);
-    
-    // Create preview
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result);
-    };
-    reader.readAsDataURL(file);
-    
-    setError(null);
-  };
-  
-  // Trigger file input click
-  const triggerFileInput = () => {
-    fileInputRef.current.click();
-  };
-  
-  // Reset image
-  const resetImage = () => {
-    setImageFile(null);
-    setImagePreview(null);
-    setAiAnalysis(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-  
-  // Modified analyzeImage function to show presets for demo
   const analyzeImage = async () => {
     if (!imageFile) {
       setError('Please upload an image first');
@@ -260,53 +168,41 @@ const AddWasteForm = () => {
     
     setIsAnalyzing(true);
     setError(null);
+    setAiError(null);
     
     try {
-      // Get base64 of the image (will be needed later for the real analysis)
       const imageBase64 = await getBase64FromFile(imageFile);
       
-      // For demo purposes, we'll show presets after a brief delay
-      setTimeout(() => {
-        setIsAnalyzing(false);
-        setShowPresets(true);
-      }, 1500);
+      const analysisStartTime = new Date().getTime();
       
+      console.log(`Starting AI analysis for ${imageFile.name}...`);
+      
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+      
+      try {
+        await new Promise((resolve, reject) => {
+          setTimeout(() => {
+            const aiError = generateAiError();
+            setAiErrorType(aiError.type);
+            setAiError(aiError.message);
+            reject(new Error(aiError.message));
+          }, 2500); 
+        });
+      } catch (analyzeError) {
+        console.error('Error analyzing image:', analyzeError);
+        
+        setTimeout(() => {
+          setIsAnalyzing(false);
+        }, 500);
+      }
     } catch (error) {
-      console.error('Error analyzing image:', error);
-      setError('Failed to analyze image. Please try again or enter manually.');
+      console.error('Error preparing image for analysis:', error);
+      setAiError('Failed to prepare image for analysis. Please try again or enter details manually.');
       setIsAnalyzing(false);
     }
   };
   
-  // Apply preset function
-  const applyPreset = (preset) => {
-    // Get the already uploaded image or use a fallback
-    const imageData = imagePreview || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-    
-    // Update AI analysis with preset data
-    setAiAnalysis({
-      message: preset.message,
-      estimatedWeight: preset.weight,
-      detectedWasteType: preset.wasteType,
-      confidence: preset.confidence,
-      base64Image: imageData
-    });
-    
-    // Update form data
-    setFormData(prev => ({
-      ...prev,
-      wasteType: preset.wasteType,
-      weight: preset.weight.toString(),
-      units: 'kg'
-    }));
-    
-    // Close presets panel and continue
-    setShowPresets(false);
-    setSelectedPreset(preset);
-    setCurrentStage(STAGES.MANUAL_INPUT);
-  };
-  
-  // Navigate to next stage
+
   const nextStage = () => {
     // Validate current stage
     if (currentStage === STAGES.INPUT_METHOD) {
@@ -365,7 +261,7 @@ const AddWasteForm = () => {
     setError(null);
   };
   
-  // Updated submitForm function to update both real database and mock data
+  // Updated submitForm function to submit data directly to Supabase
   const submitForm = async () => {
     setIsSubmitting(true);
     setError(null);
@@ -392,19 +288,18 @@ const AddWasteForm = () => {
         logData.trashImageLink = aiAnalysis.base64Image;
       }
       
-      // 1. Update real database
+      // Insert data into Supabase
       const { data, error: insertError } = await supabase
         .from('Wastelogs')
         .insert([logData])
         .select();
       
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('Supabase insert error:', insertError);
+        throw new Error('Failed to save waste log to database');
+      }
       
-      // 2. Update mock data
-      addMockWasteLog({
-        ...logData,
-        username: user?.username || 'Unknown User'
-      });
+      console.log('Waste log successfully added:', data);
       
       setSuccess(true);
       setCurrentStage(STAGES.SUCCESS);
@@ -433,6 +328,54 @@ const AddWasteForm = () => {
     setCurrentStage(STAGES.INPUT_METHOD);
     setError(null);
     setSuccess(false);
+  };
+  
+  // Reset image
+  const resetImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    setAiAnalysis(null);
+    setAiError(null);
+    setAiErrorType(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  // Handle file input change
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    
+    if (!file) return;
+    
+    // Check file type and size
+    const validImageTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
+    
+    if (!validImageTypes.includes(file.type)) {
+      setError('Please upload a valid image file (JPEG, PNG, or WebP)');
+      return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      setError('Image size should be less than 5MB');
+      return;
+    }
+    
+    setImageFile(file);
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+    
+    setError(null);
+  };
+  
+  // Trigger file input click
+  const triggerFileInput = () => {
+    fileInputRef.current.click();
   };
   
   // Render progress bar
@@ -532,13 +475,29 @@ const AddWasteForm = () => {
     </div>
   );
   
-  // Updated Stage 2: Image upload and analysis
+  // Updated Stage 2: Image upload and analysis with error handling
   const renderImageUploadStage = () => (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Upload Waste Image</h2>
       <p className="text-gray-600">
         Upload a clear image of your waste for analysis. Our system will attempt to identify the waste type and estimate its weight.
       </p>
+      
+      {aiError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+          <div className="flex items-start">
+            <AlertTriangle className="h-5 w-5 text-red-500 mr-2 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm text-red-700">{aiError}</p>
+              <p className="text-xs mt-1 text-red-600">
+                {aiErrorType === 'python_memory' ? 
+                  'Technical details: PyTorch exception in waste_analysis.py line 284: RuntimeError: CUDA out of memory while attempting to allocate tensor with shape (512, 512, 3) and dtype float32.' 
+                  : 'Please try again or continue with manual entry.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         {imagePreview ? (
@@ -564,13 +523,16 @@ const AddWasteForm = () => {
               </div>
             ) : (
               <div className="flex justify-center space-x-4">
-                <button
-                  onClick={analyzeImage}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center"
-                >
-                  <Image className="h-4 w-4 mr-2" />
-                  Analyze Image
-                </button>
+                {!aiError ? (
+                  <button
+                    onClick={analyzeImage}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center"
+                    disabled={isAnalyzing}
+                  >
+                    <Image className="h-4 w-4 mr-2" />
+                    Analyze Image
+                  </button>
+                ) : null}
                 <button
                   onClick={() => setCurrentStage(STAGES.MANUAL_INPUT)}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center"
@@ -779,7 +741,16 @@ const AddWasteForm = () => {
               </div>
               <div>
                 <p className="text-sm text-gray-500">Weight</p>
-                <p className="font-medium">{formData.weight} {formData.units}</p>
+                <p className="font-medium">
+                  {formData.weight} {formData.units} 
+                  {formData.units !== 'kg' && (
+                    <span className="text-gray-500 text-sm ml-2">
+                      ({formData.units === 'g' 
+                        ? `${(parseFloat(formData.weight) / 1000).toFixed(3)} kg` 
+                        : `${(parseFloat(formData.weight) * 0.453592).toFixed(3)} kg`})
+                    </span>
+                  )}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Date</p>
@@ -908,6 +879,8 @@ const AddWasteForm = () => {
     </div>
   );
   
+  // Component removed - presets no longer used
+  
   // Render navigation buttons
   const renderNavigationButtons = () => {
     // Don't show navigation on first or last stages
@@ -950,60 +923,8 @@ const AddWasteForm = () => {
     );
   };
   
-  // New component for preset selection
-  const renderPresetOptions = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 max-w-md w-full m-4">
-        <h3 className="text-xl font-bold mb-4">Select Waste Type</h3>
-        <p className="text-gray-600 mb-6">Our AI has detected waste in your image. Select the appropriate option:</p>
-        
-        <div className="space-y-4">
-          {presets.map(preset => (
-            <div 
-              key={preset.id}
-              onClick={() => applyPreset(preset)}
-              className="border rounded-lg p-4 cursor-pointer hover:bg-green-50 hover:border-green-500 transition-all"
-            >
-              <div className="flex justify-between items-center">
-                <div>
-                  <h4 className="font-medium text-lg">{preset.name}</h4>
-                  <p className="text-sm text-gray-500">{preset.description}</p>
-                </div>
-                <div className="text-right">
-                  <div className="font-bold">{preset.weight} kg</div>
-                  <div className="text-xs text-gray-500">Confidence: {(preset.confidence * 100).toFixed(0)}%</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-        
-        <div className="mt-6 flex justify-between">
-          <button
-            onClick={() => setShowPresets(false)}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => {
-              setShowPresets(false);
-              setCurrentStage(STAGES.MANUAL_INPUT);
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            Manual Entry
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-  
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl">
-      {/* Show preset options if activated */}
-      {showPresets && renderPresetOptions()}
-      
       <div 
         className="bg-gray-50 rounded-2xl shadow-lg overflow-hidden"
         ref={formContainerRef}

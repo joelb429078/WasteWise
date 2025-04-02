@@ -4,8 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   Trophy, Medal, Award, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, 
-  RefreshCw, Search, BarChart2, Globe, Users, Building, ChevronDown, ChevronUp,
-  ArrowUpRight, FileSpreadsheet, Printer, Plus, Trash, LogOut, TrendingDown, AlertTriangle
+  RefreshCw, BarChart2, Globe, Users, Building, 
+  FileSpreadsheet, Printer, LogOut, TrendingDown, AlertTriangle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import dynamic from 'next/dynamic';
@@ -33,7 +33,6 @@ const LeaderboardPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('rank-asc');
   const [stats, setStats] = useState({
     totalCompanies: 0,
@@ -52,7 +51,7 @@ const LeaderboardPage = () => {
 
   useEffect(() => {
     applyFilters();
-  }, [leaderboardData, searchTerm, sortBy]);
+  }, [leaderboardData]);
 
   useEffect(() => {
     setTotalPages(Math.max(1, Math.ceil(filteredData.length / pageSize)));
@@ -176,15 +175,51 @@ const LeaderboardPage = () => {
     }
   };
 
+  const parseLocation = (locationData) => {
+    if (!locationData) return null;
+    
+    try {
+      let locationObj;
+      
+      // If already a string, try to parse it
+      if (typeof locationData === 'string') {
+        locationObj = JSON.parse(locationData);
+      } else {
+        // Already an object
+        locationObj = locationData;
+      }
+      
+      // Handle array format [lat, lng]
+      if (Array.isArray(locationObj) && locationObj.length === 2) {
+        return locationObj;
+      }
+      
+      // Handle object format {lat: x, lng: y}
+      if (locationObj.lat !== undefined && locationObj.lng !== undefined) {
+        return [locationObj.lat, locationObj.lng];
+      }
+      
+      // Handle object format {latitude: x, longitude: y}
+      if (locationObj.latitude !== undefined && locationObj.longitude !== undefined) {
+        return [locationObj.latitude, locationObj.longitude];
+      }
+      
+      return null;
+    } catch (e) {
+      console.error("Error parsing location data:", e);
+      return null;
+    }
+  };
+
   const fetchLeaderboardData = async (user) => {
     try {
       setLoading(true);
       setError(null);
       
-      // Try the public API endpoint first - should give all companies
+      // Try the full public API endpoint to get all companies
       try {
         console.log('Fetching full leaderboard data from public API...');
-        const response = await fetch(`${API_BASE_URL}/api/public/leaderboard`, {
+        const response = await fetch(`${API_BASE_URL}/api/public/leaderboard-full`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -289,8 +324,6 @@ const LeaderboardPage = () => {
         rank: position,
         wastePerEmployee: parseFloat(company.wastePerEmployee || 0),
         formattedWastePerEmployee: parseFloat(company.wastePerEmployee || 0).toFixed(1),
-        seasonalWaste: parseFloat(company.totalWaste || 0),
-        formattedWaste: parseFloat(company.totalWaste || 0).toFixed(1),
         rankChange: rankChange,
         rankChangeIcon: rankChange === 0 ? '–' : 
                         rankChange > 0 ? <ArrowUp className="h-4 w-4" /> : 
@@ -305,21 +338,17 @@ const LeaderboardPage = () => {
     console.log('Processed leaderboard data:', processedData);
     setLeaderboardData(processedData);
     
-    // Generate map points with real coordinates where available
+    // Generate map points with parsed coordinates
     const mapData = processedData.map(business => {
       let position = null;
       let locationSource = 'default';
       
       // Check if business has real coordinates
       if (business.location) {
-        try {
-          const coords = JSON.parse(business.location);
-          if (Array.isArray(coords) && coords.length === 2) {
-            position = coords;
-            locationSource = 'database';
-          }
-        } catch (e) {
-          console.error(`Error parsing location for business ${business.businessID}:`, e);
+        const coords = parseLocation(business.location);
+        if (coords) {
+          position = coords;
+          locationSource = 'database';
         }
       }
       
@@ -333,7 +362,6 @@ const LeaderboardPage = () => {
         id: business.businessID,
         name: business.companyName,
         rank: business.rank,
-        waste: business.formattedWaste,
         wastePerEmployee: business.formattedWastePerEmployee,
         position: position,
         locationSource: locationSource,
@@ -341,7 +369,6 @@ const LeaderboardPage = () => {
           <div class="font-sans">
             <div class="font-bold">${business.companyName}</div>
             <div>Rank: #${business.rank}</div>
-            <div>Total Waste: ${business.formattedWaste} kg</div>
             <div>Waste/Employee: ${business.formattedWastePerEmployee} kg</div>
           </div>
         `,
@@ -401,8 +428,6 @@ const LeaderboardPage = () => {
         rank: company.rank || 0,
         wastePerEmployee: parseFloat(company.wastePerEmployee || company.formattedWastePerEmployee || 0),
         formattedWastePerEmployee: parseFloat(company.formattedWastePerEmployee || company.wastePerEmployee || 0).toFixed(1),
-        seasonalWaste: parseFloat(company.seasonalWaste || 0),
-        formattedWaste: parseFloat(company.seasonalWaste || 0).toFixed(1),
         rankChange: rankChange,
         rankChangeIcon: rankChange === 0 ? '–' : 
                         rankChange > 0 ? <ArrowUp className="h-4 w-4" /> : 
@@ -423,14 +448,10 @@ const LeaderboardPage = () => {
       
       // Check if business has real coordinates
       if (business.location) {
-        try {
-          const coords = JSON.parse(business.location);
-          if (Array.isArray(coords) && coords.length === 2) {
-            position = coords;
-            locationSource = 'database';
-          }
-        } catch (e) {
-          console.error(`Error parsing location for business ${business.businessID}:`, e);
+        const coords = parseLocation(business.location);
+        if (coords) {
+          position = coords;
+          locationSource = 'database';
         }
       }
       
@@ -444,7 +465,6 @@ const LeaderboardPage = () => {
         id: business.businessID,
         name: business.companyName,
         rank: business.rank,
-        waste: business.formattedWaste,
         wastePerEmployee: business.formattedWastePerEmployee,
         position: position,
         locationSource: locationSource,
@@ -452,7 +472,6 @@ const LeaderboardPage = () => {
           <div class="font-sans">
             <div class="font-bold">${business.companyName}</div>
             <div>Rank: #${business.rank}</div>
-            <div>Total Waste: ${business.formattedWaste} kg</div>
             <div>Waste/Employee: ${business.formattedWastePerEmployee} kg</div>
           </div>
         `,
@@ -555,8 +574,6 @@ const LeaderboardPage = () => {
           rank: index + 1,
           wastePerEmployee: entry.wastePerEmployee,
           formattedWastePerEmployee: entry.wastePerEmployee.toFixed(1),
-          seasonalWaste: entry.totalWaste,
-          formattedWaste: entry.totalWaste.toFixed(1),
           rankChange: 0, // No historical data for rank change
           rankChangeIcon: <RefreshCw className="h-4 w-4" />,
           rankChangeClass: 'text-gray-500',
@@ -574,14 +591,10 @@ const LeaderboardPage = () => {
         
         // Check if business has real coordinates
         if (business.location) {
-          try {
-            const coords = JSON.parse(business.location);
-            if (Array.isArray(coords) && coords.length === 2) {
-              position = coords;
-              locationSource = 'database';
-            }
-          } catch (e) {
-            console.error(`Error parsing location for business ${business.businessID}:`, e);
+          const coords = parseLocation(business.location);
+          if (coords) {
+            position = coords;
+            locationSource = 'database';
           }
         }
         
@@ -595,7 +608,6 @@ const LeaderboardPage = () => {
           id: business.businessID,
           name: business.companyName,
           rank: business.rank,
-          waste: business.formattedWaste,
           wastePerEmployee: business.formattedWastePerEmployee,
           position: position,
           locationSource: locationSource,
@@ -603,7 +615,6 @@ const LeaderboardPage = () => {
             <div class="font-sans">
               <div class="font-bold">${business.companyName}</div>
               <div>Rank: #${business.rank}</div>
-              <div>Total Waste: ${business.formattedWaste} kg</div>
               <div>Waste/Employee: ${business.formattedWastePerEmployee} kg</div>
             </div>
           `,
@@ -638,22 +649,6 @@ const LeaderboardPage = () => {
     }
   };
 
-  const calculateStats = (data) => {
-    if (!data || data.length === 0) {
-      setStats({ totalCompanies: 0, averageWaste: 0, topPerformer: 'N/A', mostImproved: 'N/A' });
-      return;
-    }
-
-    const totalCompanies = data.length;
-    const avgWastePerEmployee = (data.reduce((sum, company) => sum + parseFloat(company.wastePerEmployee || 0), 0) / totalCompanies).toFixed(1);
-    const topPerformer = data[0]?.companyName || 'N/A';
-    const mostImproved = data
-      .filter(d => d.rankChange !== '-' && d.rankChange > 0)
-      .sort((a, b) => (b.rankChange || 0) - (a.rankChange || 0))[0]?.companyName || 'N/A';
-
-    setStats({ totalCompanies, averageWaste: avgWastePerEmployee, topPerformer, mostImproved });
-  };
-
   const applyFilters = () => {
     if (!leaderboardData || leaderboardData.length === 0) {
       setFilteredData([]);
@@ -661,47 +656,9 @@ const LeaderboardPage = () => {
     }
 
     let filtered = [...leaderboardData];
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(company => 
-        company.companyName?.toLowerCase().includes(term)
-      );
-    }
-
-    switch (sortBy) {
-      case 'wastePerEmployee-asc': 
-        filtered.sort((a, b) => parseFloat(a.wastePerEmployee || 0) - parseFloat(b.wastePerEmployee || 0)); 
-        break;
-      case 'wastePerEmployee-desc': 
-        filtered.sort((a, b) => parseFloat(b.wastePerEmployee || 0) - parseFloat(a.wastePerEmployee || 0)); 
-        break;
-      case 'waste-asc': 
-        filtered.sort((a, b) => parseFloat(a.seasonalWaste || 0) - parseFloat(b.seasonalWaste || 0)); 
-        break;
-      case 'waste-desc': 
-        filtered.sort((a, b) => parseFloat(b.seasonalWaste || 0) - parseFloat(a.seasonalWaste || 0)); 
-        break;
-      case 'rank-asc': 
-        filtered.sort((a, b) => a.rank - b.rank); 
-        break;
-      case 'rank-desc': 
-        filtered.sort((a, b) => b.rank - a.rank); 
-        break;
-      case 'change-desc': 
-        filtered.sort((a, b) => {
-          const aChange = a.rankChange === '-' ? -Infinity : a.rankChange || 0;
-          const bChange = b.rankChange === '-' ? -Infinity : b.rankChange || 0;
-          return bChange - aChange;
-        });
-        break;
-      case 'change-asc': 
-        filtered.sort((a, b) => {
-          const aChange = a.rankChange === '-' ? Infinity : a.rankChange || 0;
-          const bChange = b.rankChange === '-' ? Infinity : b.rankChange || 0;
-          return aChange - bChange;
-        });
-        break;
-    }
+    
+    // Keep default sort by rank
+    filtered.sort((a, b) => a.rank - b.rank);
 
     setFilteredData(filtered);
   };
@@ -715,38 +672,19 @@ const LeaderboardPage = () => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
   };
 
-  const handleSortChange = (value) => {
-    setSortBy(value);
-    setCurrentPage(1);
-  };
-
-  const handleSearch = (e) => {
-    setSearchTerm(e.target.value);
-    setCurrentPage(1);
-  };
-
-  const handleTimeframeChange = async (timeframe) => {
-    setSelectedTimeframe(timeframe);
-    setCurrentPage(1);
-    setLoading(true);
-    await fetchLeaderboardData(currentUser);
-    setLoading(false);
-  };
-
   const exportToCSV = () => {
     if (filteredData.length === 0) {
       alert('No data to export');
       return;
     }
 
-    const headers = ['Rank', 'Company', 'Waste/Employee (kg)', 'Total Waste (kg)', 'Change'];
+    const headers = ['Rank', 'Company', 'Waste/Employee (kg)', 'Change'];
     const csvRows = [
       headers.join(','),
       ...filteredData.map(company => [
         company.rank || '',
         company.companyName || '',
         company.formattedWastePerEmployee || '0',
-        company.formattedWaste || '0',
         company.rankChange === '-' ? '-' : company.rankChange || '0'
       ].join(','))
     ];
@@ -770,9 +708,6 @@ const LeaderboardPage = () => {
     if (rank === 3) return <Award className="h-6 w-6 text-amber-700" />;
     return null;
   };
-
-  const [isActionBarVisible, setIsActionBarVisible] = useState(true);
-  const toggleActionBar = () => setIsActionBarVisible(!isActionBarVisible);
 
   const handleBack = () => router.push("/dashboard");
   const handleLogout = async () => {
@@ -817,35 +752,6 @@ const LeaderboardPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
-      <div className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-500 ease-in-out ${isActionBarVisible ? 'translate-y-0' : 'translate-y-24'}`}>
-        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 glass-effect rounded-t-lg px-4 py-2 cursor-pointer flex items-center gap-2 shadow-md z-50 transition-all duration-300 hover:bg-gray-100" onClick={toggleActionBar}>
-          <div className="h-1 w-8 bg-gray-400 rounded-full"></div>
-          {isActionBarVisible ? <span className="text-xs text-gray-500 flex items-center">Hide <ChevronDown className="h-3 w-3 ml-1" /></span> : <span className="text-xs text-gray-500 flex items-center">Show <ChevronUp className="h-3 w-3 ml-1" /></span>}
-        </div>
-        <div className="bg-gray-50/50 backdrop-blur-sm border-t border-gray-200 h-24 w-full"></div>
-        <div className="absolute top-6 left-0 right-0 flex justify-center z-50 px-4">
-          <div className="glass-effect rounded-full px-4 py-3 flex items-center gap-3 md:gap-5 mx-auto shadow-xl">
-            <a href="/add-waste" className="bg-green-500 hover:bg-green-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md" title="Add Waste Entry">
-              <Plus className="h-5 w-5 md:h-6 md:w-6" />
-              <span className="hidden md:inline ml-2">Add Waste</span>
-            </a>
-            <a href="/wastelogs" className="bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md" title="Waste Logs">
-              <Trash className="h-5 w-5 md:h-6 md:w-6" />
-              <span className="hidden md:inline ml-2">Waste Logs</span>
-            </a>
-            <a href="/dashboard" className="bg-purple-500 hover:bg-purple-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md" title="Dashboard">
-              <BarChart2 className="h-5 w-5 md:h-6 md:w-6" />
-              <span className="hidden md:inline ml-2">Dashboard</span>
-            </a>
-            <a href="/employeemanagement" className="bg-amber-500 hover:bg-amber-600 text-white p-3 rounded-full flex items-center justify-center transition-all duration-200 transform hover:scale-110 shadow-md" title="Employees">
-              <Users className="h-5 w-5 md:h-6 md:w-6" />
-              <span className="hidden md:inline ml-2">Employees</span>
-            </a>
-          </div>
-        </div>
-      </div>
-      <div className={`transition-all duration-500 ease-in-out ${isActionBarVisible ? 'pb-24' : 'pb-0'}`}></div>
-
       <div className="bg-gradient-to-r from-green-600 to-green-700 p-8 text-white">
         <div className="container mx-auto max-w-7xl">
           <div className="flex justify-between mb-6">
@@ -860,9 +766,9 @@ const LeaderboardPage = () => {
           </div>
           <h1 className="text-3xl font-bold mb-2">Waste Efficiency Leaderboard</h1>
           <p className="text-green-100">Rankings based on waste per employee</p>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
             <div className="bg-white/15 backdrop-blur-sm rounded-lg p-4 flex flex-col">
-              <div className="text-green-100 text-sm mb-1">Participating Companies</div>
+              <div className="text-green-100 text-sm mb-1">Out of All Companies</div>
               <div className="text-2xl font-bold">{stats.totalCompanies}</div>
             </div>
             <div className="bg-white/15 backdrop-blur-sm rounded-lg p-4 flex flex-col">
@@ -872,10 +778,6 @@ const LeaderboardPage = () => {
             <div className="bg-white/15 backdrop-blur-sm rounded-lg p-4 flex flex-col">
               <div className="text-green-100 text-sm mb-1">Top Performer</div>
               <div className="text-xl font-bold truncate">{stats.topPerformer}</div>
-            </div>
-            <div className="bg-white/15 backdrop-blur-sm rounded-lg p-4 flex flex-col">
-              <div className="text-green-100 text-sm mb-1">Most Improved</div>
-              <div className="text-xl font-bold truncate">{stats.mostImproved}</div>
             </div>
           </div>
         </div>
@@ -915,7 +817,7 @@ const LeaderboardPage = () => {
               <div className="border-b border-gray-200 bg-gradient-to-r from-green-600 to-green-700 text-white py-4 px-6 flex justify-between items-center">
                 <h2 className="text-xl font-semibold flex items-center">
                   <Trophy className="h-6 w-6 mr-2" />
-                  {selectedTimeframe.charAt(0).toUpperCase() + selectedTimeframe.slice(1)} Leaderboard
+                  Waste Efficiency Rankings
                 </h2>
                 <button 
                   onClick={refreshData}
@@ -924,76 +826,20 @@ const LeaderboardPage = () => {
                   <RefreshCw className="h-4 w-4" />
                 </button>
               </div>
-              <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
-                <div className="flex flex-wrap gap-2 justify-center">
-                  {['week', 'month', 'quarter', 'season', 'year', 'all'].map(tf => (
-                    <button
-                      key={tf}
-                      onClick={() => handleTimeframeChange(tf)}
-                      className={`px-4 py-2 text-sm rounded-md transition-colors ${selectedTimeframe === tf ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                    >
-                      This {tf.charAt(0).toUpperCase() + tf.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              
               <div className="bg-white px-6 py-4 border-b border-gray-200">
-                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                  <div className="relative w-full md:w-auto flex-grow md:max-w-md">
-                    <input
-                      type="text"
-                      placeholder="Search for companies..."
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      value={searchTerm}
-                      onChange={handleSearch}
-                    />
-                    <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  </div>
-                  <div className="flex items-center gap-2 w-full md:w-auto">
-                    <span className="text-sm text-gray-600">Sort by:</span>
-                    <select
-                      className="border border-gray-300 rounded-md px-2 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                      value={sortBy}
-                      onChange={(e) => handleSortChange(e.target.value)}
-                    >
-                      <option value="rank-asc">Rank (Best First)</option>
-                      <option value="wastePerEmployee-asc">Waste/Employee (Lowest First)</option>
-                      <option value="wastePerEmployee-desc">Waste/Employee (Highest First)</option>
-                      <option value="waste-asc">Total Waste (Lowest First)</option>
-                      <option value="waste-desc">Total Waste (Highest First)</option>
-                      <option value="change-desc">Most Improved</option>
-                      <option value="change-asc">Least Improved</option>
-                    </select>
-                  </div>
-                  <div className="flex gap-2 w-full md:w-auto justify-end">
-                    <button onClick={exportToCSV} className="px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors flex items-center gap-1">
-                      <FileSpreadsheet className="h-4 w-4" />
-                      <span className="hidden sm:inline">Export</span>
-                    </button>
-                    <button onClick={printTable} className="px-3 py-2 text-sm bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors flex items-center gap-1">
-                      <Printer className="h-4 w-4" />
-                      <span className="hidden sm:inline">Print</span>
-                    </button>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center text-sm text-gray-500 mt-4">
-                  <div>Showing {filteredData.length} {filteredData.length === 1 ? 'company' : 'companies'}{searchTerm && ` matching "${searchTerm}"`}</div>
-                  <div className="flex items-center gap-2">
-                    <span>Rows per page:</span>
-                    <select
-                      className="border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      value={pageSize}
-                      onChange={(e) => setPageSize(Number(e.target.value))}
-                    >
-                      <option value="10">10</option>
-                      <option value="20">20</option>
-                      <option value="50">50</option>
-                      <option value="100">100</option>
-                      <option value="1000">All</option>
-                    </select>
-                  </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={exportToCSV} className="px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors flex items-center gap-1">
+                    <FileSpreadsheet className="h-4 w-4" />
+                    <span>Export</span>
+                  </button>
+                  <button onClick={printTable} className="px-3 py-2 text-sm bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors flex items-center gap-1">
+                    <Printer className="h-4 w-4" />
+                    <span>Print</span>
+                  </button>
                 </div>
               </div>
+              
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead>
@@ -1001,8 +847,6 @@ const LeaderboardPage = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Waste/Employee (kg)</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Waste (kg)</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Change</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -1035,26 +879,14 @@ const LeaderboardPage = () => {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className="text-sm font-bold text-gray-900">{company.formattedWastePerEmployee} kg</span>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-sm text-gray-700">{company.formattedWaste} kg</span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className={`flex items-center ${company.rankChangeClass}`}>
-                              {company.rankChange === '-' ? '–' : company.rankChangeIcon}
-                              {company.rankChange !== '-' && company.rankChange !== 0 && (
-                                <span className="font-medium ml-1">{Math.abs(company.rankChange)} position{Math.abs(company.rankChange) !== 1 ? 's' : ''}</span>
-                              )}
-                            </div>
-                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center">
+                        <td colSpan={4} className="px-6 py-8 text-center">
                           <div className="flex flex-col items-center">
                             <Trophy className="h-12 w-12 text-gray-300 mb-2" />
                             <p className="text-gray-500 mb-2">No companies found</p>
-                            <p className="text-gray-400 text-sm">Try adjusting your search or timeframe</p>
                           </div>
                         </td>
                       </tr>
@@ -1062,6 +894,7 @@ const LeaderboardPage = () => {
                   </tbody>
                 </table>
               </div>
+              
               {filteredData.length > pageSize && (
                 <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
                   <div className="text-sm text-gray-700">
@@ -1125,10 +958,6 @@ const LeaderboardPage = () => {
                     </div>
                     <span className="ml-2 text-sm text-gray-600">Lower waste/employee = Higher rank</span>
                   </div>
-                  <a href="/add-waste" className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors flex items-center justify-center md:justify-start w-full md:w-auto">
-                    <ArrowUpRight className="h-4 w-4 mr-1" />
-                    Log Your Waste
-                  </a>
                 </div>
               </div>
             </div>
