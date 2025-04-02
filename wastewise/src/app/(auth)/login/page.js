@@ -94,6 +94,7 @@ export default function Login() {
         localStorage.setItem('authToken', data.session.access_token);
         localStorage.setItem('userId', user.id);
         localStorage.setItem('isAdmin', userData.admin);
+        localStorage.setItem('userEmail', user.email);
         
         router.push('/dashboard');
       } else {
@@ -103,6 +104,7 @@ export default function Login() {
         localStorage.setItem('authToken', data.session.access_token);
         localStorage.setItem('userId', user.id);
         localStorage.setItem('isAdmin', userData.admin || false);
+        localStorage.setItem('userEmail', user.email);
         
         router.push('/dashboard');
       }

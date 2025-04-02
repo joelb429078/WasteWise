@@ -1007,7 +1007,7 @@ const Dashboard = () => {
                   <Award className="h-5 w-5 text-yellow-600" />
                 </span>
               </div>
-              <p className="text-2xl font-bold mb-2">#{metrics.currentRank || '-'}</p>
+              <p className="text-2xl font-bold mb-2">#{metrics.currentRank + 1 || '-'}</p>
               {renderRankChangeIcon(metrics.rankChange)}
             </>
           )}

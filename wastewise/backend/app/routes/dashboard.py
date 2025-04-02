@@ -215,11 +215,11 @@ def get_dashboard_metrics():
                 'seasonalWaste': current_waste,
                 'previousSeasonalWaste': previous_waste,
             })
-        sorted_current = sorted(leaderboard_list, key=lambda x: x['seasonalWaste'], reverse=True)
+        sorted_current = sorted(leaderboard_list, key=lambda x: x['seasonalWaste'])
         current_rank_map = {}
         for i, entry in enumerate(sorted_current, start=1):
             current_rank_map[entry['businessID']] = i
-        sorted_previous = sorted(leaderboard_list, key=lambda x: x['previousSeasonalWaste'], reverse=True)
+        sorted_previous = sorted(leaderboard_list, key=lambda x: x['previousSeasonalWaste'])
         previous_rank_map = {}
         for i, entry in enumerate(sorted_previous, start=1):
             previous_rank_map[entry['businessID']] = i
