@@ -222,14 +222,59 @@ const createCustomPopupContent = (point) => {
   `;
 };
 
+// Function to parse location data from different formats
+const parseLocation = (locationData) => {
+  if (!locationData) return null;
+  
+  try {
+    let locationObj;
+    
+    // If already a string, try to parse it
+    if (typeof locationData === 'string') {
+      locationObj = JSON.parse(locationData);
+    } else {
+      // Already an object
+      locationObj = locationData;
+    }
+    
+    // Handle array format [lat, lng]
+    if (Array.isArray(locationObj) && locationObj.length === 2) {
+      return locationObj;
+    }
+    
+    // Handle object format {lat: x, lng: y}
+    if (locationObj.lat !== undefined && locationObj.lng !== undefined) {
+      return [locationObj.lat, locationObj.lng];
+    }
+    
+    // Handle object format {latitude: x, longitude: y}
+    if (locationObj.latitude !== undefined && locationObj.longitude !== undefined) {
+      return [locationObj.latitude, locationObj.longitude];
+    }
+    
+    return null;
+  } catch (e) {
+    console.error("Error parsing location data:", e);
+    return null;
+  }
+};
+
 // Function to ensure all map points have positions
 const ensurePositions = (points) => {
   if (!points || points.length === 0) return [];
   
   return points.map((point, index) => {
-    // If the point already has a position, use it
-    if (point.position && Array.isArray(point.position) && point.position.length === 2) {
-      return point;
+    // Try to parse the position using our enhanced function
+    const parsedPosition = point.position ? point.position : 
+                           point.location ? parseLocation(point.location) : null;
+    
+    // If we have a valid position, use it
+    if (parsedPosition && Array.isArray(parsedPosition) && parsedPosition.length === 2) {
+      return {
+        ...point,
+        position: parsedPosition,
+        locationSource: 'database'
+      };
     }
     
     // Otherwise, assign a UK location using modulo to cycle through the locations
@@ -239,7 +284,8 @@ const ensurePositions = (points) => {
     return {
       ...point,
       position: location.position,
-      locationName: location.name // Add the location name for reference
+      locationName: location.name, // Add the location name for reference
+      locationSource: 'default'
     };
   });
 };
